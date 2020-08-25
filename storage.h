@@ -6,4 +6,13 @@
 #ifndef KRB_STORAGE_H
 #define KRB_STORAGE_H
 
-#include "mcuio.h"
+//#include "mcuio.h"
+
+
+/******************************************************************************
+    Public 'API' Funcitons
+ *****************************************************************************/
+int32_t     storage_get_config(uint32_t, void*);
+
+
+#endif

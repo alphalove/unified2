@@ -7,8 +7,8 @@
 #ifndef KRB_CORE__H
 #define KRB_CORE_H
 
-#include "mcuio.h"
-#include "load_controller.h"
+//#include "mcuio.h"
+//#include "load_controller.h"
 
 
 

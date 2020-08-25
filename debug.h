@@ -2,10 +2,28 @@
 #define KRB_DEBUG_H
 
 
-//#define IGNORE_PRINTF
+#define DEBUG_FATAL
+#define DEBUG_INFO_PLUS
+#define DEBUG_INFO_PLUS_PLUS
 
-#ifdef IGNORE_PRINTF
-    #define std_printf(fmt, ...) (0)
+
+#ifdef DEBUG_INFO
+    #define INFO(x) x
+#else
+    #define INFO(x)
 #endif
+
+#ifdef DEBUG_INFO_PLUS
+    #define INFO_P(x) x
+#else
+    #define INFO_P(x)
+#endif
+
+#ifdef DEBUG_INFO_PLUS_PLUS
+    #define INFO_PP(x) x
+#else
+    #define INFO_PP(x)
+#endif
+
 
 #endif

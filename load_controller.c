@@ -8,12 +8,17 @@
 #include <libopencm3/stm32/gpio.h>
 
 #include "debug.h"
+#include "kroby_common.h"
 
 
 // PIN defines
 #define PIN_WDT_LED_B           GPIO9
 #define PIN_PWR_LED_A           GPIO8
 #define PIN_RS485_EN            GPIO8                                           // PA8
+
+
+//s_dc_load_config *dc_config;
+//s_ac_load_config *ac_config;
 
 
 /******************************************************************************
@@ -40,8 +45,10 @@ void
 lc_init(void) {
     setup_lc_leds();
     gpio_set(GPIOB, PIN_PWR_LED_A);                                             // turn on power LED
-    
+
     setup_sensor_uart();
+    INFO_PP(std_printf("Done setup_sensor_uart()\n");)
+
     xTaskCreate(lc_task_process_sensor, "senor", 200, NULL, configMAX_PRIORITIES-1, NULL);
     //storage_get_config();
 }
@@ -120,11 +127,17 @@ lc_task_process_sensor(void *args __attribute__((unused))) {
     bool sensor_chid_registered = false;
     bool process_buf = false;
 
+    //INFO(std_printf("\n\t## Sensor Task Pre Delay ##\n");)
+
     vTaskDelay(pdMS_TO_TICKS(7000));
 
-    std_printf("\n\t## Sensor Task Started ##\n");
+    //INFO(std_printf("\n\t## Sensor Task Started ##\n");)
 
     for (;;) {
+
+    }
+}
+/*
         if ( (gc = getc_uart_nb(2)) != -1 ) {
 
             ch = (char)gc;
@@ -226,9 +239,9 @@ lc_task_process_sensor(void *args __attribute__((unused))) {
                 }
             }
         }
-*/
+
     }
 
 }
-
+*/
 

@@ -1,4 +1,3 @@
-#include "core.h"
 #include "load_controller.h"                                                    // needed for lc_toggle_wdt_led()
 #include "FreeRTOS.h"
 #include "task.h"
@@ -7,8 +6,11 @@
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 
-
+#include "core.h"
+#include "kroby_common.h"
+#include "storage.h"
 #include "debug.h"
+
 
 // PIN defines
 #define PIN_ADC_PA4             GPIO4                                           // ADC ID pins used on all nodes
@@ -58,16 +60,45 @@ Col/Row    ADC Val      Std Res Val (5%) to get into the middle of the quantizin
  *****************************************************************************/
 
 
+typedef struct {
+    uint32_t            cfg_crc;                            // crc of this config
+    uint8_t             flash_slot;                         // flash slot we came from
+    s_fw_version        fw_version;                         // uint32_t firmware version
+    uint16_t            cfg_finger;                         // simple finger print for finding config in FLASH
+    uint16_t            cfg_size;                           // size of SAVED config in bytes
+    // end header
+    uint16_t            save_flag;                          // number of config saves
+    uint16_t            boot_count;                         // number of system boots
+    node_t              node_type;                        // node type based on module resistors
+    uint8_t             node_id;                            // NID use for CAN ID, bitfield of 7
+    char                node_name[MAX_NOCAN_NAME_LEN];      // node name used for NoCAN channel registration
+    uint8_t             node_name_length;                   // name siez, not null terminated!
+    uint16_t            chID_cfg_in;                        // NoCAN PUBLISH channel used to configure this node
+    uint16_t            chID_ack_out;                       // NoCAN PUBLISH channel used to publish node status information
+    uint16_t            chID_sensor;                        // NoCAN PUBLISH channel used to publish sensor telemetry data
+    char                sensor_name[MAX_NOCAN_NAME_LEN];    // NoCAN channel name used for sensor registration
+    uint8_t             sensor_name_length;                 // NoCAN channel name used for sensor registration
+
+    // structs are always multiples of 32bit words
+    // each new item starts packing to the right of each new 32bit word
+    // 16bit only get pack on 0 and 16bit  boarders
+    // when no space, a new 32bit word is added to the struct
+    // 'empty' bytes are filled with zeros
+} s_config_core;
 
 // function globals
 node_t node_type = E;
 
+s_config_core   *core_config;                               // pointer, malloc'd then filled with stored FLASH config
+
+
 /******************************************************************************
     Forward declaration of private functions
  *****************************************************************************/
-static void     setup_uart1(void);
+static void     setup_std_printf(void);
 static void     setup_adc(void);
-static node_t   read_node_type(void);
+static node_t   discover_node_type(void);
+static void     setup_core_config(void);
 static uint16_t read_adc(uint8_t);
 static uint16_t lrot(uint16_t, int);
 static void     pseudo_hash(uint16_t *, uint16_t *);
@@ -75,9 +106,8 @@ static void     pseudo_hash(uint16_t *, uint16_t *);
 
 
 /******************************************************************************
-    API
+    API - core init
 
-core init
     1. Discover what type of board we are
         a. Enable ADC
         b. Read PA4 and PA5
@@ -89,10 +119,11 @@ core init
  *****************************************************************************/
 void
 core_init(void) {
-    setup_uart1();
+    setup_std_printf();
     setup_adc();
-    node_type = read_node_type();                                               // set 'function' global variable
+    node_type = discover_node_type();                                               // set 'function' global variable
     adc_power_off(ADC1);
+    setup_core_config();
 }
 
 
@@ -127,12 +158,29 @@ core_get_hashed_uid(uint16_t *hashed_id) {
 
 
 /******************************************************************************
-    DO NOT std_print PIROR TO STARTING RTOS
-
-    Set up UART1 for debug
+    Setup core config struc in SRAM
 ******************************************************************************/
 static void
-setup_uart1(void) {
+setup_core_config(void) {
+    
+    core_config = pvPortMalloc(sizeof(s_config_core));
+
+    if (core_config != NULL) {
+        storage_get_config(CFG_CORE_ADDR, core_config);
+        INFO_P(std_printf("Got Storage\n");)
+    } else {
+        INFO(std_printf("core config malloc failed! - bye");)
+        while (1) { __asm__("nop");}
+    }
+}
+
+/******************************************************************************
+    Set up UART1 for std_printf
+
+    RTOS must be running to use std_printf
+******************************************************************************/
+static void
+setup_std_printf(void) {
     rcc_periph_clock_enable(RCC_GPIOB);                                         // TX=B6, RX=B7 AFIO
     rcc_periph_clock_enable(RCC_AFIO);                                          // Need AFIO clock
     //rcc_periph_clock_enable(RCC_GPIOA);                                       // Need AFIO clock
@@ -196,7 +244,7 @@ setup_adc(void) {
     return this node type as set by node ID resistors
  ******************************************************************************/
 static node_t
-read_node_type(void) {
+discover_node_type(void) {
     uint16_t adc_pa4, adc_pa5;
     uint16_t lookup_column, lookup_row;
 
@@ -219,7 +267,7 @@ read_node_type(void) {
         lookup_row = adc_pa5 / ADC_QUANTIZE_VAL;
     }
     
-    //std_print("col:%u\t\trow:%u\n", lookup_column, lookup_row);
+    INFO_P(std_printf("col:%u\t\trow:%u\n", lookup_column, lookup_row););
     
     return node_lookup[(lookup_row * QUANTIZE_NUM) + lookup_column];
 }

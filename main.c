@@ -31,13 +31,16 @@
 #include <libopencm3/stm32/flash.h>
 #include <libopencm3/stm32/f1/bkp.h>
 
+#include "kroby_common.h"
 #include "core.h"
 #include "load_controller.h"
 //#include "nocan.h"
-//#include "storage.h"
+#include "storage.h"
 #include "debug.h"
 
-// DEFINES
+/******************************************************************************
+    Defines
+ *****************************************************************************/
 #define WATCHDOG_DURATION       10000                                           // ms till watchdog will bite
 
 /******************************************************************************
@@ -56,6 +59,7 @@ task_main_init_then_wdt(void *args __attribute((unused))) {
     // configure the node RTOS running
 
     core_init();                                                                // initial node core and peripherals
+    INFO_PP(std_printf("Done core_init()\n");)
 
 
     //storage_init();
@@ -68,6 +72,7 @@ task_main_init_then_wdt(void *args __attribute((unused))) {
             break;
         case LOAD_AC_4CH:
         case LOAD_DC_4CH:
+            INFO_PP(std_printf("Type LOAD_DC_4CH\n");)
             lc_init();
             break;
         case SWITCH_6CH:
@@ -98,7 +103,7 @@ main(void) {
     iwdg_set_period_ms(WATCHDOG_DURATION);
     iwdg_start();
 
-    xTaskCreate(task_main_init_then_wdt, "inti_wdt", 100, NULL, configMAX_PRIORITIES-1,NULL);
+    xTaskCreate(task_main_init_then_wdt, "inti_wdt", 200, NULL, configMAX_PRIORITIES-1,NULL);
 
     vTaskStartScheduler();
     for (;;);
