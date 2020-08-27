@@ -3,11 +3,26 @@
 ######################################################################
 
 BINARY		= main
-SRCFILES	= main.c core.c load_controller.c storage.c rtos/timers.c rtos/heap_4.c rtos/list.c rtos/port.c rtos/queue.c rtos/tasks.c rtos/opencm3.c
+SRCFILES	= main.c core.c load_controller.c storage.c uartlib.c mcuio.c rtos/timers.c rtos/heap_4.c rtos/list.c rtos/port.c rtos/queue.c rtos/tasks.c rtos/opencm3.c
 LDSCRIPT	= stm32f103c8t6_CAN.ld
 
-# DEPS		= 	# Any additional dependencies for your build
-# CLOBBER	+= 	# Any additional files to be removed with "make clobber"
+DEPS		= uartlib.c uartlib.h mcuio.c mcuio.h debug.h kroby_common.h
+CLOBBER		+= uartlib.c uartlib.h mcuio.c mcuio.h
+
+uartlib.c: ../libwwg/src/uartlib.c
+	cp ../libwwg/src/uartlib.c .
+
+uartlib.h: ../libwwg/include/uartlib.h
+	cp ../libwwg/include/uartlib.h .
+
+mcuio.c: ../libwwg/src/mcuio.c
+	cp ../libwwg/src/mcuio.c .
+
+mcuio.h: ../libwwg/include/mcuio.h
+	cp ../libwwg/include/mcuio.h .
+
+uartlib.o: uartlib.h
+mcuio.o: mcuio.h
 
 include ../../Makefile.incl
 include ../Makefile.rtos
@@ -19,4 +34,4 @@ include ../Makefile.rtos
 #	3. "make clobber" will "clean" and remove *.elf, *.bin etc.
 #	4. "make flash" will perform:
 #	   st-flash write main.bin 0x8000000
-######################################################################
+######################################################################  

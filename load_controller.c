@@ -2,10 +2,16 @@
 #include "load_controller.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
+#include "queue.h"
+#include "timers.h"
 
+#include <libopencm3/stm32/usart.h>
 #include <libopencm3/stm32/adc.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
+
+#include "mcuio.h"
 
 #include "debug.h"
 #include "kroby_common.h"
@@ -28,7 +34,6 @@ static void     setup_sensor_uart(void);
 static void     setup_lc_leds(void);
 
 
-
 /******************************************************************************
     API
 
@@ -47,10 +52,12 @@ lc_init(void) {
     gpio_set(GPIOB, PIN_PWR_LED_A);                                             // turn on power LED
 
     setup_sensor_uart();
-    INFO_PP(std_printf("Done setup_sensor_uart()\n");)
-
-    xTaskCreate(lc_task_process_sensor, "senor", 200, NULL, configMAX_PRIORITIES-1, NULL);
-    //storage_get_config();
+    
+    if (xTaskCreate(lc_task_process_sensor, "senor", 200, NULL, configMAX_PRIORITIES-1, NULL) != pdPASS) {
+        INFO_PP(std_printf("lc_task_process failed!\n");)
+    }
+    
+    setup_lc_config();
 }
 
 /******************************************************************************
@@ -59,6 +66,43 @@ lc_init(void) {
 void
 lc_toggle_wdt_led(void) {
     gpio_toggle(GPIOB, PIN_WDT_LED_B);
+}
+
+
+/******************************************************************************
+    Setup load controller config struc in SRAM
+******************************************************************************/
+static void
+setup_lc_config(void) {
+    lc_cfg_ptr = pvPortMalloc(sizeof(s_config_lc));
+
+    if (lc_cfg_ptr != NULL) {
+        if (storage_get_config(CFG_LC_ADDR, sizeof(s_config_lc), (void*)lc_cfg_ptr) < 0) {
+
+            INFO(std_printf("No valid config - reset settings to default\n");)
+
+            lc_config_reset();
+        } else {
+            INFO_P(std_printf("FLASH stored config is valid\n");)
+            // lc_cfg_ptr now filled with a copy of FLASH config
+            
+            if (lc_cfg_ptr->fw_version.version != MAIN_FW_VERSION) {
+                INFO(std_printf("\tnew main firmware version\n");)
+                // see if config settings need updating
+                if (LOAD_LC_DEFAULTS == true) {
+                    INFO(std_printf("\treset LC config to default\n");)
+                    // clobber the config back to defaults
+                    lc_config_reset();
+                } else {
+                    // set sane values for our new lc_cfg_ptr parameters
+                    core_config_set_new_parameter_defaults();
+                }
+            }
+        }
+    } else {
+        INFO(std_printf("could not malloc config_ptr - BOMB!\n");)
+        while (1) __asm__("nop");
+    }
 }
 
 
@@ -110,6 +154,8 @@ setup_sensor_uart(void) {
         PIN_RS485_EN);
 
     gpio_clear(GPIOA, PIN_RS485_EN);                                               // pin low to enable RX
+
+    INFO_PP(std_printf("setup_sensor_uart() complete\n");)
 }
 
 
@@ -117,7 +163,7 @@ setup_sensor_uart(void) {
     TASK - Process sensor data if it is available
  *****************************************************************************/
 void
-lc_task_process_sensor(void *args __attribute__((unused))) {
+lc_task_process_sensor(void *args __attribute((unused))) {
     int32_t gc;
     //char kbuf[16];
     char ch;
@@ -127,13 +173,16 @@ lc_task_process_sensor(void *args __attribute__((unused))) {
     bool sensor_chid_registered = false;
     bool process_buf = false;
 
-    //INFO(std_printf("\n\t## Sensor Task Pre Delay ##\n");)
+    INFO_PP(std_printf("\n\t## LC Sensor Process Task ##\n");)
 
-    vTaskDelay(pdMS_TO_TICKS(7000));
+    //vTaskDelay(pdMS_TO_TICKS(7000));
 
     //INFO(std_printf("\n\t## Sensor Task Started ##\n");)
 
     for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        //xTaskYeild();
 
     }
 }

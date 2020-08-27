@@ -17,7 +17,6 @@
 #include "semphr.h"
 #include "queue.h"
 #include "timers.h"
-//#include "version.h"
 
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
@@ -30,6 +29,8 @@
 #include <libopencm3/stm32/iwdg.h>
 #include <libopencm3/stm32/flash.h>
 #include <libopencm3/stm32/f1/bkp.h>
+
+#include "mcuio.h"
 
 #include "kroby_common.h"
 #include "core.h"
@@ -59,20 +60,30 @@ task_main_init_then_wdt(void *args __attribute((unused))) {
     // configure the node RTOS running
 
     core_init();                                                                // initial node core and peripherals
-    INFO_PP(std_printf("Done core_init()\n");)
+    INFO_P(std_printf("\tcore_init() complete\n");)
+
+    INFO(core_print_settings();)
+    INFO(std_printf("\n\n");)
 
 
     //storage_init();
 
     switch (core_node_type_is()) {
         case E:
+            INFO(std_printf("\tUnknown Node Type - bye\n");)
+            while (1) __asm__("nop");
         case CORE:
+            INFO(std_printf("\tCORE Node Type - bye\n");)
+            while (1) __asm__("nop");
         case MCU_ONLY:
+            INFO(std_printf("\tMCU  Node Type - bye\n");)
+            while (1) __asm__("nop");
             // nothing else to configure
             break;
         case LOAD_AC_4CH:
+            INFO(std_printf("\tLOAD_AC_4CH\n");)
         case LOAD_DC_4CH:
-            INFO_PP(std_printf("Type LOAD_DC_4CH\n");)
+            INFO(std_printf("\tLOAD_DC_4CH\n");)
             lc_init();
             break;
         case SWITCH_6CH:
@@ -103,7 +114,11 @@ main(void) {
     iwdg_set_period_ms(WATCHDOG_DURATION);
     iwdg_start();
 
+    //xTaskCreate(lc_task_process_sensor, "lc_sensor", 200, NULL, configMAX_PRIORITIES-1,NULL);
+
     xTaskCreate(task_main_init_then_wdt, "inti_wdt", 200, NULL, configMAX_PRIORITIES-1,NULL);
+
+    
 
     vTaskStartScheduler();
     for (;;);

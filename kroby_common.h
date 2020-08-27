@@ -11,7 +11,13 @@
 
 #include <stdint.h>
 
+/******************************************************************************
+    Main Firmware Version and Config over-write
+ *****************************************************************************/
+#define MAIN_FW_VERSION         0x00000001      // 0.0.0.X
 
+#define LOAD_CORE_DEFAULTS      true            // set true if you want core defaults to be loaded with new VERSION
+#define LOAD_TRAIT_DEFAULTS     true            // set true if you want extra defaults to be loaded with new VERSION
 
 /******************************************************************************
     FLASH MEMORY
@@ -27,7 +33,7 @@
 // boot fw then main fw
 #define FLASH_START     0x08000000
 #define BOOT_FW_ADDR    FLASH_START
-#define MAIN_FW_ADDR    (BOOT_ADDR + BOOT_SIZE)
+#define MAIN_FW_ADDR    (FLASH_START + BOOT_SIZE)
 
 // CRC is in top page, Core CFG in 3rd top, LC / SP CFG in 5th top
 #define CRC_ADDR        (FLASH_START + FLASH_SIZE - CRC_SIZE)                   // FC00 - 64,512

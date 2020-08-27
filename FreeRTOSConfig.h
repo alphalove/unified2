@@ -85,23 +85,23 @@
  * See http://www.freertos.org/a00110.html.
  *----------------------------------------------------------*/
 
-#define configUSE_PREEMPTION		1
-#define configUSE_IDLE_HOOK		0
-#define configUSE_TICK_HOOK		0
-#define configCPU_CLOCK_HZ		( ( unsigned long ) 72000000 )	
-#define configSYSTICK_CLOCK_HZ ( configCPU_CLOCK_HZ / 8 )  /* fix for vTaskDelay() */
-#define configTICK_RATE_HZ		( ( TickType_t ) 1000 )
+#define configUSE_PREEMPTION        1
+#define configUSE_IDLE_HOOK         0
+#define configUSE_TICK_HOOK	        0
+#define configCPU_CLOCK_HZ		    ( ( unsigned long ) 72000000 )	
+#define configSYSTICK_CLOCK_HZ      ( configCPU_CLOCK_HZ / 8 )  /* fix for vTaskDelay() */
+#define configTICK_RATE_HZ		    ( ( TickType_t ) 1000 )
 #define configMAX_PRIORITIES		( 5 )
 #define configMINIMAL_STACK_SIZE	( ( unsigned short ) 128 )
 // I changed this way back when from 17 to 14, but not sure why!
 // ok - ld compile error - node.elf section '.bss' will not fit in region 'ram'
-#define configTOTAL_HEAP_SIZE		( ( size_t ) ( 14 * 1024 ) )
+#define configTOTAL_HEAP_SIZE		( ( size_t ) ( 17 * 1024 ) )
 #define configMAX_TASK_NAME_LEN		( 16 )
 #define configUSE_TRACE_FACILITY	0
 #define configUSE_16_BIT_TICKS		0
 #define configIDLE_SHOULD_YIELD		1
-#define configUSE_MUTEXES				1
-#define configUSE_TIMERS				1
+#define configUSE_MUTEXES           1
+#define configUSE_TIMERS            1
 // timer task needs to be the same priority as the other tasks... particularly
 // if those task only call taskYeild() as they are ready to run immediately
 // and lower priority tasks (those with a smaller number) will not get any

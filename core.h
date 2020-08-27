@@ -4,7 +4,7 @@
  * RTOS aware and running
  */
 
-#ifndef KRB_CORE__H
+#ifndef KRB_CORE_H
 #define KRB_CORE_H
 
 //#include "mcuio.h"
@@ -32,6 +32,9 @@ typedef enum {
 void            core_init(void);
 void            core_toggle_wdt_led(void);
 node_t          core_node_type_is(void);
-void            core_get_hashed_uid(uint16_t*);
+
+#ifdef DEBUG_INFO
+void            core_print_settings(void);
+#endif
 
 #endif

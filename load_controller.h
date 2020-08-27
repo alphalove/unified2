@@ -13,7 +13,7 @@
  *****************************************************************************/
 void            lc_init(void);
 void            lc_toggle_wdt_led(void);
-void            lc_task_process_sensor(void *args __attribute__((unused)));
+void            lc_task_process_sensor(void *args __attribute((unused)));
 
 
 #endif

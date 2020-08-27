@@ -1,11 +1,18 @@
 #include "load_controller.h"                                                    // needed for lc_toggle_wdt_led()
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
+#include "queue.h"
+#include "timers.h"
 
 #include <libopencm3/stm32/adc.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/usart.h>
 
+#include "mcuio.h"
+
+#include "uartlib.h"
 #include "core.h"
 #include "kroby_common.h"
 #include "storage.h"
@@ -78,6 +85,9 @@ typedef struct {
     uint16_t            chID_sensor;                        // NoCAN PUBLISH channel used to publish sensor telemetry data
     char                sensor_name[MAX_NOCAN_NAME_LEN];    // NoCAN channel name used for sensor registration
     uint8_t             sensor_name_length;                 // NoCAN channel name used for sensor registration
+    //uint8_t             test;
+
+    // add new parameters to end of struct
 
     // structs are always multiples of 32bit words
     // each new item starts packing to the right of each new 32bit word
@@ -89,7 +99,7 @@ typedef struct {
 // function globals
 node_t node_type = E;
 
-s_config_core   *core_config;                               // pointer, malloc'd then filled with stored FLASH config
+s_config_core*   core_cfg_ptr;                               // pointer, malloc'd then filled with stored FLASH config
 
 
 /******************************************************************************
@@ -102,6 +112,10 @@ static void     setup_core_config(void);
 static uint16_t read_adc(uint8_t);
 static uint16_t lrot(uint16_t, int);
 static void     pseudo_hash(uint16_t *, uint16_t *);
+static void     core_config_reset(void);
+static uint8_t  nibble_to_ascii(uint8_t);
+static void     core_config_set_new_parameter_defaults(void);
+static void     core_get_hashed_uid(uint16_t*);
 
 
 
@@ -120,9 +134,12 @@ static void     pseudo_hash(uint16_t *, uint16_t *);
 void
 core_init(void) {
     setup_std_printf();
+    INFO(std_printf("\n\n ### Kroby Node Booting ###\n");)
+    
     setup_adc();
     node_type = discover_node_type();                                               // set 'function' global variable
     adc_power_off(ADC1);
+    rcc_periph_clock_enable(RCC_CRC);                                               // enable clock for CRC
     setup_core_config();
 }
 
@@ -149,9 +166,9 @@ core_node_type_is(void) {
 
 
 /******************************************************************************
-    API - generates 8 byte hased UID based on STM32 UID
+    Generates 8 byte hased UID based on STM32 UID
  *****************************************************************************/
-void
+static void
 core_get_hashed_uid(uint16_t *hashed_id) {
     pseudo_hash((uint16_t *)CHIP_UDID, (uint16_t *)hashed_id);
 }
@@ -162,15 +179,150 @@ core_get_hashed_uid(uint16_t *hashed_id) {
 ******************************************************************************/
 static void
 setup_core_config(void) {
-    
-    core_config = pvPortMalloc(sizeof(s_config_core));
+    core_cfg_ptr = pvPortMalloc(sizeof(s_config_core));
 
-    if (core_config != NULL) {
-        storage_get_config(CFG_CORE_ADDR, core_config);
-        INFO_P(std_printf("Got Storage\n");)
+    if (core_cfg_ptr != NULL) {
+        if (storage_get_config(CFG_CORE_ADDR, sizeof(s_config_core), (void*)core_cfg_ptr) < 0) {
+
+            INFO(std_printf("No valid config - reset settings to default\n");)
+
+            core_config_reset();
+        } else {
+            INFO_P(std_printf("FLASH stored config is valid\n");)
+            // core_cfg_ptr now filled with a copy of FLASH config
+            
+            if (core_cfg_ptr->fw_version.version != MAIN_FW_VERSION) {
+                INFO(std_printf("\tnew main firmware version\n");)
+                // see if config settings need updating
+                if (LOAD_CORE_DEFAULTS == true) {
+                    INFO(std_printf("\treset config to default\n");)
+                    // clobber the config back to defaults
+                    core_config_reset();
+                } else {
+                    // set sane values for our new core_cfg_ptr parameters
+                    core_config_set_new_parameter_defaults();
+                }
+            }
+        }
     } else {
-        INFO(std_printf("core config malloc failed! - bye");)
-        while (1) { __asm__("nop");}
+        INFO(std_printf("could not malloc config_ptr - BOMB!\n");)
+        while (1) __asm__("nop");
+    }
+}
+
+
+/******************************************************************************
+    Configure the new core_cfg parameters with sane defaults
+******************************************************************************/
+static void
+core_config_set_new_parameter_defaults(void) {
+
+    INFO(std_printf("\tchecking / setting new FW parameter defaults\n");)
+
+    // so new fw will have a new parameter added to the core_cfg struct
+    // and space is allocated by for it in SRAM by malloc
+    // this is to set sane default values for the new settings
+    // note, if the core_config_reset() is called, these parameters are in
+    // there and will get set at that point.
+
+
+    /*    
+    if (core_cfg_ptr->fw_version.version < 0x00000003) {
+        INFO(std_printf("\tnew core parameters\n");)
+        core_cfg_ptr->test = 10;
+    }
+    */
+
+    /*
+
+    if (core_cfg_ptr->fw_version.version < 0x00000004) {
+        INFO(std_printf("\tnew core parameters\n");)
+        core_cfg_ptr->test1 = 11;
+        core_cfg_ptr->test2 = 12;
+    }
+
+    // etc
+    */
+
+
+    // if nothing else, update the config size and fw version to latest
+    // this can help pick up issues if fw version go backwards...
+    INFO(std_printf("\tupdating config size and FW revision\n");)
+    core_cfg_ptr->cfg_size = sizeof(s_config_core);
+    core_cfg_ptr->fw_version.version = MAIN_FW_VERSION;
+    storage_save_config(CFG_CORE_ADDR, (void*)core_cfg_ptr);
+}
+
+
+
+
+/******************************************************************************
+    Factory reset the core config settings
+******************************************************************************/
+static void
+core_config_reset(void) {
+    uint8_t     name[8];
+
+    if (core_cfg_ptr != NULL) { 
+        //core_cfg_ptr->cfg_crc                                                 // calc'd at point of storage into FLASH
+        core_cfg_ptr->flash_slot = 0;                                           // currently not used
+        core_cfg_ptr->fw_version.version = MAIN_FW_VERSION;                               
+        core_cfg_ptr->cfg_finger = CFG_FINGER;
+        core_cfg_ptr->cfg_size = sizeof(s_config_core);
+        // end header
+        core_cfg_ptr->save_flag = 0x0000;                                        // reset save flag
+        core_cfg_ptr->boot_count = 0x0000;
+        core_cfg_ptr->node_type = core_node_type_is();
+        core_cfg_ptr->node_id = 0;                                               // stored when got from NoCAN master
+        core_cfg_ptr->chID_cfg_in = 0xFFFF;                                      // not set
+        core_cfg_ptr->chID_ack_out = 0xFFFF;                                     // not set
+        core_cfg_ptr->chID_sensor = 0xFFFF;                                      // not set
+
+        // sensor_name[] will use node name as default
+        core_cfg_ptr->sensor_name_length = 0;                                    // 0 shows not in use
+
+        // get the hashed UDID
+        core_get_hashed_uid((uint16_t *)name);
+
+        //p_core->node_name[0] = nibble_to_ascii(name[4] >> 4);
+        //p_core->node_name[1] = nibble_to_ascii(name[4]);
+        //p_core->node_name[2] = nibble_to_ascii(name[5] >> 4);
+        //p_core->node_name[3] = nibble_to_ascii(name[5]);
+        core_cfg_ptr->node_name[0] = nibble_to_ascii(name[6] >> 4);              // changed to only use last 4 nibbles for initial Node dev config channel
+        core_cfg_ptr->node_name[1] = nibble_to_ascii(name[6]);
+        core_cfg_ptr->node_name[2] = nibble_to_ascii(name[7] >> 4);
+        core_cfg_ptr->node_name[3] = nibble_to_ascii(name[7]);
+        
+        core_cfg_ptr->node_name_length = 4;
+
+        //core_cfg_ptr->test = 11;
+
+        // add new parameters to end of struct and add defaults here
+        // core_config_set_new_parameters will update those that have
+        // changed between revison, but if called this reset will set all
+        // parameters.
+
+        storage_save_config(CFG_CORE_ADDR, (void*)core_cfg_ptr);
+
+    } else {
+        INFO(std_printf("core config reset - NULL - BOMB!\n");)
+        while (1) __asm__("nop");
+    }
+}
+
+
+/******************************************************************************
+    Turn nibble into ASCII representation
+******************************************************************************/
+static uint8_t
+nibble_to_ascii(uint8_t num) {
+
+    num = num & 0x0F;
+
+    if (num < 10) {
+        return num + '0';                   // number is 0 to 9, add '0' to get ascii 0 to 9
+    } else {
+        return num + ('A' - 10);            // number is A to F, add stuff to get ascii A to F
     }
 }
 
@@ -362,3 +514,46 @@ pseudo_hash(uint16_t *src, uint16_t *dst) {
     dst[2] = C;
     dst[3] = D;
 }
+
+#ifdef DEBUG_INFO
+void
+core_print_settings(void) {
+    std_printf("\
+    \nCore Config Settings:\n\
+    flash_slot:\t%u\n\
+    cfg_crc:\t0x%08lX\n\
+    cfg_finger:\t0x%04X\n\
+    fw_ver:\t%02X.%02X.%02X.%02X\n\
+    cfg_size:\t0x%04X\n\
+    save_flag:\t0x%04X\n\
+    boot_count:\t0x%04X\n\
+    node_type:\t0x%02X\n\
+    node_id:\t%u\n\
+    chID cfg:\t0x%04X\n\
+    chID ack:\t0x%04X\n\
+    chID sensor:\t0x%04X\n",\
+
+    core_cfg_ptr->flash_slot,
+    core_cfg_ptr->cfg_crc,
+    core_cfg_ptr->cfg_finger,
+    core_cfg_ptr->fw_version.major,
+    core_cfg_ptr->fw_version.minor,
+    core_cfg_ptr->fw_version.patch,
+    core_cfg_ptr->fw_version.test, 
+    core_cfg_ptr->cfg_size,
+    core_cfg_ptr->save_flag,
+    core_cfg_ptr->boot_count,
+    core_cfg_ptr->node_type,
+    core_cfg_ptr->node_id,
+    core_cfg_ptr->chID_cfg_in,
+    core_cfg_ptr->chID_ack_out,
+    core_cfg_ptr->chID_sensor);
+
+
+    std_printf("    node name:\t");
+    for (uint8_t i = 0; i < core_cfg_ptr->node_name_length; i++) {
+        std_printf("%c", core_cfg_ptr->node_name[i]);
+    }
+    std_printf("\n");
+}
+#endif

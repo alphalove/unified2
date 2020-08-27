@@ -1,10 +1,10 @@
-#ifndef KRB_DEBUG__H
+#ifndef KRB_DEBUG_H
 #define KRB_DEBUG_H
 
 
-#define DEBUG_FATAL
-#define DEBUG_INFO_PLUS
-#define DEBUG_INFO_PLUS_PLUS
+#define DEBUG_INFO
+//#define DEBUG_INFO_PLUS
+//#define DEBUG_INFO_PLUS_PLUS
 
 
 #ifdef DEBUG_INFO

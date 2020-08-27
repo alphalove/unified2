@@ -12,7 +12,8 @@
 /******************************************************************************
     Public 'API' Funcitons
  *****************************************************************************/
-int32_t     storage_get_config(uint32_t, void*);
+int32_t     storage_get_config(uint32_t, uint32_t, void*);
+int32_t     storage_save_config(uint32_t, void*);
 
 
 #endif
