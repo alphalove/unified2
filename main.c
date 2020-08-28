@@ -35,7 +35,7 @@
 #include "kroby_common.h"
 #include "core.h"
 #include "load_controller.h"
-//#include "nocan.h"
+#include "nocan.h"
 #include "storage.h"
 #include "debug.h"
 
@@ -49,6 +49,8 @@
  *****************************************************************************/
 void    task_main_init_then_wdt(void *args __attribute((unused)));
 
+extern TaskHandle_t wdt_task_handle = NULL;
+
 
 /******************************************************************************
 
@@ -59,11 +61,21 @@ void
 task_main_init_then_wdt(void *args __attribute((unused))) {
     // configure the node RTOS running
 
-    core_init();                                                                // initial node core and peripherals
-    INFO_P(std_printf("\tcore_init() complete\n");)
+    core_setup_std_printf();
+    INFO(std_printf("\n\n ### Kroby Node Booting ###\n");)
 
+    nocan_init(false, true);                            // !nart, locked, PA11/PA12, also creates RTOS q & t);
+
+    core_init();                                        // initial node core and peripherals
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+    
     INFO(core_print_settings();)
     INFO(std_printf("\n\n");)
+
+
+    //std_printf("\n\t** Requesting NodeID address\n");
+    //can_nocan_system(0, SYS_ADDRESS_REQUEST, 0, sizeof(hashed_id), hashed_id);
 
 
     //storage_init();
@@ -116,9 +128,7 @@ main(void) {
 
     //xTaskCreate(lc_task_process_sensor, "lc_sensor", 200, NULL, configMAX_PRIORITIES-1,NULL);
 
-    xTaskCreate(task_main_init_then_wdt, "inti_wdt", 200, NULL, configMAX_PRIORITIES-1,NULL);
-
-    
+    xTaskCreate(task_main_init_then_wdt, "inti_wdt", 200, NULL, configMAX_PRIORITIES-1, &wdt_task_handle);
 
     vTaskStartScheduler();
     for (;;);

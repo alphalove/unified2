@@ -29,9 +29,12 @@ typedef enum {
 /******************************************************************************
     Public 'API' Funcitons
  *****************************************************************************/
+void            core_setup_std_printf(void);
 void            core_init(void);
 void            core_toggle_wdt_led(void);
+void            core_get_hashed_uid(uint16_t*);
 node_t          core_node_type_is(void);
+uint16_t        core_nocan_node_id(void);
 
 #ifdef DEBUG_INFO
 void            core_print_settings(void);

@@ -14,6 +14,7 @@
 
 #include "uartlib.h"
 #include "core.h"
+#include "nocan.h"
 #include "kroby_common.h"
 #include "storage.h"
 #include "debug.h"
@@ -67,6 +68,9 @@ Col/Row    ADC Val      Std Res Val (5%) to get into the middle of the quantizin
  *****************************************************************************/
 
 
+/******************************************************************************
+    Node Core config parameters
+ *****************************************************************************/
 typedef struct {
     uint32_t            cfg_crc;                            // crc of this config
     uint8_t             flash_slot;                         // flash slot we came from
@@ -76,7 +80,7 @@ typedef struct {
     // end header
     uint16_t            save_flag;                          // number of config saves
     uint16_t            boot_count;                         // number of system boots
-    node_t              node_type;                        // node type based on module resistors
+    node_t              node_type;                          // node type based on module resistors
     uint8_t             node_id;                            // NID use for CAN ID, bitfield of 7
     char                node_name[MAX_NOCAN_NAME_LEN];      // node name used for NoCAN channel registration
     uint8_t             node_name_length;                   // name siez, not null terminated!
@@ -115,8 +119,41 @@ static void     pseudo_hash(uint16_t *, uint16_t *);
 static void     core_config_reset(void);
 static uint8_t  nibble_to_ascii(uint8_t);
 static void     core_config_set_new_parameter_defaults(void);
-static void     core_get_hashed_uid(uint16_t*);
+static void     setup_nocan_node_id(void);
 
+
+
+/******************************************************************************
+    API - Set up UART1 for std_printf
+
+    RTOS must be running to use std_printf
+******************************************************************************/
+void
+core_setup_std_printf(void) {
+    rcc_periph_clock_enable(RCC_GPIOB);                                         // TX=B6, RX=B7 AFIO
+    rcc_periph_clock_enable(RCC_AFIO);                                          // Need AFIO clock
+    //rcc_periph_clock_enable(RCC_GPIOA);                                       // Need AFIO clock
+    rcc_periph_clock_enable(RCC_USART1);
+
+    //gpio_primary_remap(AFIO_MAPR_SWJ_CFG_JTAG_OFF_SW_ON, AFIO_MAPR_USART1_REMAP);
+    AFIO_MAPR |= AFIO_MAPR_USART1_REMAP;
+
+    gpio_set_mode(
+        GPIOB,
+        GPIO_MODE_OUTPUT_50_MHZ,
+        GPIO_CNF_OUTPUT_ALTFN_PUSHPULL,
+        GPIO6);
+    
+    gpio_set_mode(
+        GPIOB,
+        GPIO_MODE_INPUT,
+        GPIO_CNF_INPUT_FLOAT,
+        GPIO7);
+    
+    open_uart(1,115200,"8N1","rw",0,0);                                         // UART1 without RTS/CTS flow control
+    
+    std_set_device(mcu_uart1);                                                  // Use UART1 for std I/O
+}
 
 
 /******************************************************************************
@@ -133,14 +170,43 @@ static void     core_get_hashed_uid(uint16_t*);
  *****************************************************************************/
 void
 core_init(void) {
-    setup_std_printf();
-    INFO(std_printf("\n\n ### Kroby Node Booting ###\n");)
+    INFO(std_printf("\n\n ### Node Core Initialise ###\n");)
     
     setup_adc();
     node_type = discover_node_type();                                               // set 'function' global variable
     adc_power_off(ADC1);
     rcc_periph_clock_enable(RCC_CRC);                                               // enable clock for CRC
     setup_core_config();
+
+    setup_nocan_node_id();
+}
+
+/******************************************************************************
+    Request NoCAN node ID from NoCAN master
+ *****************************************************************************/
+static void
+setup_nocan_node_id(void) {
+    int16_t node_id;
+    uint8_t hashed_id[8];
+
+    INFO(std_printf("\n\t** Requesting NodeID address\n");)
+
+    core_get_hashed_uid(hashed_id);
+
+    //send_nocan_msg(bool sys_msg, uint8_t nid, uint8_t func, uint8_t param, uint16_t chid, uint8_t length, void *data)
+    node_id = nocan_get_node_id(sizeof(hashed_id), hashed_id);
+
+    if (node_id > 0) {
+        // success!
+        INFO(std_printf("\treceived node id: %u\n", node_id););
+        if (node_id != core_cfg_ptr->node_id) {
+            core_cfg_ptr->node_id = node_id;
+            storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
+        }
+    } else {
+        // error
+        INFO(std_printf("error getting node id\n");)
+    }
 }
 
 
@@ -164,11 +230,19 @@ core_node_type_is(void) {
     return node_type;
 }
 
+/******************************************************************************
+    API - returns the node nocan id
+ *****************************************************************************/
+uint16_t
+core_nocan_node_id(void) {
+    return core_cfg_ptr->node_id;
+}
+
 
 /******************************************************************************
-    Generates 8 byte hased UID based on STM32 UID
+    API - Generates 8 byte hased UID based on STM32 UID
  *****************************************************************************/
-static void
+void
 core_get_hashed_uid(uint16_t *hashed_id) {
     pseudo_hash((uint16_t *)CHIP_UDID, (uint16_t *)hashed_id);
 }
@@ -184,18 +258,18 @@ setup_core_config(void) {
     if (core_cfg_ptr != NULL) {
         if (storage_get_config(CFG_CORE_ADDR, sizeof(s_config_core), (void*)core_cfg_ptr) < 0) {
 
-            INFO(std_printf("No valid config - reset settings to default\n");)
+            INFO(std_printf("No valid Core config - reset settings to default\n");)
 
             core_config_reset();
         } else {
-            INFO_P(std_printf("FLASH stored config is valid\n");)
+            INFO_P(std_printf("FLASH stored Core config is valid\n");)
             // core_cfg_ptr now filled with a copy of FLASH config
             
             if (core_cfg_ptr->fw_version.version != MAIN_FW_VERSION) {
                 INFO(std_printf("\tnew main firmware version\n");)
                 // see if config settings need updating
                 if (LOAD_CORE_DEFAULTS == true) {
-                    INFO(std_printf("\treset config to default\n");)
+                    INFO(std_printf("\treset Core config to default\n");)
                     // clobber the config back to defaults
                     core_config_reset();
                 } else {
@@ -217,7 +291,7 @@ setup_core_config(void) {
 static void
 core_config_set_new_parameter_defaults(void) {
 
-    INFO(std_printf("\tchecking / setting new FW parameter defaults\n");)
+    INFO(std_printf("\tchecking / setting new Core FW parameter defaults\n");)
 
     // so new fw will have a new parameter added to the core_cfg struct
     // and space is allocated by for it in SRAM by malloc
@@ -324,38 +398,6 @@ nibble_to_ascii(uint8_t num) {
     } else {
         return num + ('A' - 10);            // number is A to F, add stuff to get ascii A to F
     }
-}
-
-/******************************************************************************
-    Set up UART1 for std_printf
-
-    RTOS must be running to use std_printf
-******************************************************************************/
-static void
-setup_std_printf(void) {
-    rcc_periph_clock_enable(RCC_GPIOB);                                         // TX=B6, RX=B7 AFIO
-    rcc_periph_clock_enable(RCC_AFIO);                                          // Need AFIO clock
-    //rcc_periph_clock_enable(RCC_GPIOA);                                       // Need AFIO clock
-    rcc_periph_clock_enable(RCC_USART1);
-
-    //gpio_primary_remap(AFIO_MAPR_SWJ_CFG_JTAG_OFF_SW_ON, AFIO_MAPR_USART1_REMAP);
-    AFIO_MAPR |= AFIO_MAPR_USART1_REMAP;
-
-    gpio_set_mode(
-        GPIOB,
-        GPIO_MODE_OUTPUT_50_MHZ,
-        GPIO_CNF_OUTPUT_ALTFN_PUSHPULL,
-        GPIO6);
-    
-    gpio_set_mode(
-        GPIOB,
-        GPIO_MODE_INPUT,
-        GPIO_CNF_INPUT_FLOAT,
-        GPIO7);
-    
-    open_uart(1,115200,"8N1","rw",0,0);                                         // UART1 without RTS/CTS flow control
-    
-    std_set_device(mcu_uart1);                                                  // Use UART1 for std I/O
 }
 
 

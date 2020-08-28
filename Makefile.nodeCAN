@@ -3,7 +3,7 @@
 ######################################################################
 
 BINARY		= main
-SRCFILES	= main.c core.c load_controller.c storage.c uartlib.c mcuio.c rtos/timers.c rtos/heap_4.c rtos/list.c rtos/port.c rtos/queue.c rtos/tasks.c rtos/opencm3.c
+SRCFILES	= main.c core.c load_controller.c storage.c nocan.c uartlib.c mcuio.c rtos/timers.c rtos/heap_4.c rtos/list.c rtos/port.c rtos/queue.c rtos/tasks.c rtos/opencm3.c
 LDSCRIPT	= stm32f103c8t6_CAN.ld
 
 DEPS		= uartlib.c uartlib.h mcuio.c mcuio.h debug.h kroby_common.h

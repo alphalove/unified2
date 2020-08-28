@@ -17,7 +17,8 @@
 #define MAIN_FW_VERSION         0x00000001      // 0.0.0.X
 
 #define LOAD_CORE_DEFAULTS      true            // set true if you want core defaults to be loaded with new VERSION
-#define LOAD_TRAIT_DEFAULTS     true            // set true if you want extra defaults to be loaded with new VERSION
+#define LOAD_LC_DEFAULTS        true            // set true if LC parameter defaults are to be loaded with new VERSION
+#define LOAD_SP_DEFAULTS        true            // set true if SP parameter defaults are to be loaded with new VERSION
 
 /******************************************************************************
     FLASH MEMORY
@@ -49,12 +50,30 @@
 #define MAIN_FW_MAX_SIZE    (CFG_SP_ADDR - MAIN_FW_ADDR)                        // 59k - 8k = 51k
 
 /******************************************************************************
-    GENERAL DEFINES
+    STM32 DEFINES
  *****************************************************************************/
+#define NUM_STM32_CAN_FILTERS       14                                              // number of HW CAN filters on STM32F103
 #define CPU_SPEED                   72000000                                    // CPU in Hz
+
+
+/******************************************************************************
+    KROBY GENERAL DEFINES
+ *****************************************************************************/
 #define MAX_NOCAN_NAME_LEN          52
 
 #define CFG_FINGER                  0xAAA8                  // finger print word to help find valid settings in flash
+
+
+
+/******************************************************************************
+    GENERAL DEFINES
+ *****************************************************************************/
+
+
+
+
+
+
 
 
 /******************************************************************************
