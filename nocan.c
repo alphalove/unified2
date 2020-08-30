@@ -68,7 +68,7 @@ typedef struct {
 //void(function_ptr*)()    can_filter_cb[NUM_STM32_CAN_FILTERS];
 uint32_t        can_filter_cb[NUM_STM32_CAN_FILTERS];
 
-extern TaskHandle_t wdt_task_handle;
+TaskHandle_t g_calling_task;
 
 
 /******************************************************************************
@@ -379,37 +379,44 @@ can_rx1_isr(void) {                             // libopenCM3
 
 
 /******************************************************************************
-    API - Get the node id from NoCAN master
+    API - Get a node id from the NoCAN master
  *****************************************************************************/
 int16_t
-nocan_get_node_id(uint8_t hashed_size, uint8_t *hashed_id) {
+nocan_get_node_id(TaskHandle_t calling_task, uint8_t hashed_size, uint8_t *hashed_id) {
     uint32_t noti_val;
+
+    g_calling_task = calling_task;                                  // set global task handle so CAN processing can unblock
+
     nocan_send_system_msg(0, SYS_ADDRESS_REQUEST, 0, hashed_size, hashed_id);
 
     noti_val = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));       // BLOCKING until notified by NoCAN message receiver or timeout
 
     if (noti_val == 0) {                                            // ulTaskNotifyTake returns 0 if timed out
         INFO(std_printf("timeout waiting for NoCAN node ID\n");)
+        return -1;
+    } else {
+        INFO(std_printf("new node id: %u\n", noti_val);)
+        return (int16_t)noti_val;
     }
-
-    INFO(std_printf("new node id: %u\n", noti_val);)
-    return (int16_t)noti_val;
 }
 
 
 /******************************************************************************
-    API - Get the node id from NoCAN master
+    API - Get a channel id from the NoCAN master
  *****************************************************************************/
-int16_t
-nocan_get_channel_id(uint8_t name_size, uint8_t *name) {
-    uint32_t noti_val;
+int32_t
+nocan_get_channel_id(TaskHandle_t calling_task, uint8_t name_size, uint8_t *name) {
+    int32_t noti_val;
+
+    g_calling_task = calling_task;                                  // set global task handle so CAN processing can unblock
+
     nocan_send_system_msg(core_nocan_node_id(), SYS_CHANNEL_REGISTER, 0, name_size, name);
 
     noti_val = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));       // BLOCKING until notified by NoCAN message receiver or timeout
 
     if (noti_val == 0) {                                            // ulTaskNotifyTake returns 0 if timed out
         INFO(std_printf("Timeout waiting for channel id\n");)
-        return 0;
+        return -1;
     } else {
         INFO(std_printf("new channel id: %u\n", noti_val);)
         return (int16_t)noti_val;
@@ -417,15 +424,17 @@ nocan_get_channel_id(uint8_t name_size, uint8_t *name) {
 }
 
 
-
-
 /*********************************************************************
-    Porcess a NoCAN system type message
+    Process a NoCAN system type message
+
+    This function is called / sits in the task_process_can_rx task,
+    so the xTaskNotify can call back to the blocked functions
+    that sit in other running tasks
  *********************************************************************/
 static void
 process_nocan_system_msg(s_canmsg *msg) {
     s_nocan_eid eID;
-    uint16_t nocan_ch_id;
+    int32_t nocan_ch_id;
     uint8_t hashed_id[8];
     bool id_match;
 
@@ -458,14 +467,13 @@ process_nocan_system_msg(s_canmsg *msg) {
 
                 if (id_match) {
                     INFO_P(std_printf("SYS_ADDRESS_CONFIGURE match\n");)
-
-                    xTaskNotify(wdt_task_handle, eID.parameter, eSetValueWithOverwrite); // unblock task
+                    // todo - NoCAN master can reply with parameter of 255 on failure
+                    xTaskNotify(g_calling_task, eID.parameter, eSetValueWithOverwrite); // unblock task
 
                 } else {
                     INFO_P(std_printf("SYS_ADDRESS_CONFIGURE not for us\n");)
                 }
                 break;
-
             case SYS_NODE_BOOT_REQUEST:                 // (6)
                 INFO(std_printf("NoCAN SYSTEM reboot request!");)
                 vTaskDelay(500);
@@ -480,9 +488,9 @@ process_nocan_system_msg(s_canmsg *msg) {
 
                     INFO_P(std_printf("SYS_CHANNEL_REGISTER_ACK ch id:\n", nocan_ch_id);)
                     
-                    xTaskNotify(wdt_task_handle, nocan_ch_id, eSetValueWithOverwrite); // unblock task
+                    xTaskNotify(g_calling_task, nocan_ch_id, eSetValueWithOverwrite); // unblock task
                 } else {
-                    INFO(std_printf("Node Mgr could not assign chID\n");)
+                    INFO(std_printf("NoCAN master could not assign chID\n");)
                     
                     //xTaskNotify(xTask_chan_reg_ack, *(uint32_t*)&task_msg, eSetValueWithOverwrite); // unblock task
                 }
@@ -526,7 +534,6 @@ nocan_frame_builder(s_canmsg *msg) {
     if(eID.sys_flag) {
         // never receive system messages longer than 1 NoCAN frame so just process
         frame_cnt = 0;
-        INFO_PP(std_printf("system message\n");)
         process_nocan_system_msg(msg);
     } else {
 
@@ -562,15 +569,17 @@ nocan_frame_builder(s_canmsg *msg) {
             //std_printf("cID: %u\n", eID.chID);
         }
 
+        INFO_PP(
         std_printf("ChMsg Frame: %u\tFrom: %u\tChID: %u\tData: ", frame_cnt, eID.node_id, eID.chID);
 
         for (uint8_t dpos = 0; dpos < msg->length; dpos++) {
             if (dpos != 0) std_printf(", ");
-            INFO_PP(std_printf("%02X", msg->data[dpos]);)
+            std_printf("%02X", msg->data[dpos]);
             nocan_data[(frame_cnt * 8) + dpos] = msg->data[dpos];       // copy this CAN frame data into our 64 byte array
             data_length++;
         }
-        INFO_PP(std_printf("\n");)
+        std_printf("\n");
+        )
 
         if (process_frame) {
 

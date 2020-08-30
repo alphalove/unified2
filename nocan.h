@@ -6,6 +6,7 @@
 #ifndef KRB_NOCAN_H
 #define KRB_NOCAN_H
 
+#include "task.h"
 #include "mcuio.h"
 
 
@@ -13,8 +14,8 @@
     Public 'API' Funcitons
  *****************************************************************************/
 void    nocan_init(bool, bool);
-int16_t nocan_get_node_id(uint8_t, uint8_t *);
-int16_t nocan_get_channel_id(uint8_t, uint8_t *);
+int16_t nocan_get_node_id(TaskHandle_t, uint8_t, uint8_t *);
+int32_t nocan_get_channel_id(TaskHandle_t, uint8_t, uint8_t *);
 void    nocan_send_channel_msg(uint8_t, uint16_t, uint8_t, void *);
 void    nocan_send_system_msg(uint8_t, uint8_t, uint8_t, uint8_t, void *);
 void    nocan_set_all_system_msg_filter(uint32_t);

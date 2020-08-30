@@ -78,6 +78,7 @@ s_config_lc *lc_cfg_ptr;
 static void     setup_sensor_uart(void);
 static void     setup_lc_leds(void);
 static void     setup_lc_config(void);
+static void     setup_nocan_channel_subscriptions(void);
 static void     lc_config_reset(void);
 static void     lc_config_set_new_parameter_defaults(void);
 
@@ -96,9 +97,6 @@ lc init
  *****************************************************************************/
 void
 lc_init(void) {
-    uint8_t name[4];
-    uint8_t length = 4;
-
     setup_lc_leds();
     gpio_set(GPIOB, PIN_PWR_LED_A);                                             // turn on power LED
 
@@ -110,12 +108,7 @@ lc_init(void) {
     
     setup_lc_config();
 
-    name[0] = "t";
-    name[1] = "e";
-    name[2] = "s";
-    name[3] = "t";
-
-    nocan_get_channel_id(length, name);
+    setup_nocan_channel_subscriptions();
 }
 
 /******************************************************************************
@@ -124,6 +117,74 @@ lc_init(void) {
 void
 lc_toggle_wdt_led(void) {
     gpio_toggle(GPIOB, PIN_WDT_LED_B);
+}
+
+
+
+/******************************************************************************
+    Setup / reqest NoCAN channel id's for each LC subscription
+******************************************************************************/
+static void
+setup_nocan_channel_subscriptions(void) {
+    uint8_t tmp_buf[MAX_NOCAN_NAME_LEN + 10];
+    uint32_t buf_pos;
+    TaskHandle_t current_task;
+    int32_t channel_id;
+
+    current_task = xTaskGetCurrentTaskHandle();
+
+    for (uint32_t i = 0; i < MAX_LC_SUBSCRIPTIONS; i++) {
+        if (lc_cfg_ptr->lc_subs[i].sub_name_length != 0) {
+            INFO_P(std_printf("requesting nocan ch id for sub: %u\n", i);)
+
+            // do cmd/ channel
+            buf_pos = 0;
+
+            tmp_buf[buf_pos++] = 'c';
+            tmp_buf[buf_pos++] = 'm';
+            tmp_buf[buf_pos++] = 'd';
+            tmp_buf[buf_pos++] = '/';
+            
+            for (uint32_t j = 0; j < lc_cfg_ptr->lc_subs[i].sub_name_length; j++) {
+                tmp_buf[buf_pos++] = lc_cfg_ptr->lc_subs[i].sub_name[j];
+            }
+
+            channel_id = nocan_get_channel_id(current_task, buf_pos, tmp_buf);
+
+            if (channel_id >= 0) {
+                // successfully assigned a channel id
+                lc_cfg_ptr->lc_subs[i].chID_cmd_in = (uint16_t)channel_id;
+                INFO_P(std_printf("success, cmd/ ch id: %u\n", channel_id);)
+            } else {
+                // timed out
+                INFO(std_printf("failure! ch id request timed out");)
+            }
+
+            // now repeater for stat/ channel
+            buf_pos = 0;
+
+            tmp_buf[buf_pos++] = 's';
+            tmp_buf[buf_pos++] = 't';
+            tmp_buf[buf_pos++] = 'a';  
+            tmp_buf[buf_pos++] = 't';
+            tmp_buf[buf_pos++] = '/';
+            
+            for (uint32_t j = 0; j < lc_cfg_ptr->lc_subs[i].sub_name_length; j++) {
+                tmp_buf[buf_pos++] = lc_cfg_ptr->lc_subs[i].sub_name[j];
+            }
+
+            channel_id = nocan_get_channel_id(current_task, buf_pos, tmp_buf);
+
+            if (channel_id >= 0) {
+                // successfully assigned a channel id
+                lc_cfg_ptr->lc_subs[i].chID_stat_out = (uint16_t)channel_id;
+                INFO_P(std_printf("success, stat/ ch id: %u\n", channel_id);)
+            } else {
+                // timed out
+                INFO(std_printf("failure! ch id request timed out");)
+            }
+        }
+    }
 }
 
 

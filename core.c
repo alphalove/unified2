@@ -78,13 +78,13 @@ typedef struct {
     uint16_t            cfg_finger;                         // simple finger print for finding config in FLASH
     uint16_t            cfg_size;                           // size of SAVED config in bytes
     // end header
-    uint16_t            save_flag;                          // number of config saves
+    uint16_t            save_count;                          // number of config saves
     uint16_t            boot_count;                         // number of system boots
     node_t              node_type;                          // node type based on module resistors
     uint8_t             node_id;                            // NID use for CAN ID, bitfield of 7
     char                node_name[MAX_NOCAN_NAME_LEN];      // node name used for NoCAN channel registration
     uint8_t             node_name_length;                   // name siez, not null terminated!
-    uint16_t            chID_cfg_in;                        // NoCAN PUBLISH channel used to configure this node
+    uint16_t            chID_dev_in;                        // NoCAN PUBLISH channel used to configure this node
     uint16_t            chID_ack_out;                       // NoCAN PUBLISH channel used to publish node status information
     uint16_t            chID_sensor;                        // NoCAN PUBLISH channel used to publish sensor telemetry data
     char                sensor_name[MAX_NOCAN_NAME_LEN];    // NoCAN channel name used for sensor registration
@@ -113,6 +113,7 @@ static void     setup_std_printf(void);
 static void     setup_adc(void);
 static node_t   discover_node_type(void);
 static void     setup_core_config(void);
+static void     setup_nocan_core_subscriptions(void);
 static uint16_t read_adc(uint8_t);
 static uint16_t lrot(uint16_t, int);
 static void     pseudo_hash(uint16_t *, uint16_t *);
@@ -179,6 +180,7 @@ core_init(void) {
     setup_core_config();
 
     setup_nocan_node_id();
+    setup_nocan_core_subscriptions();
 }
 
 /******************************************************************************
@@ -188,13 +190,16 @@ static void
 setup_nocan_node_id(void) {
     int16_t node_id;
     uint8_t hashed_id[8];
+    TaskHandle_t current_task;
 
-    INFO(std_printf("\n\t** Requesting NodeID address\n");)
+    current_task = xTaskGetCurrentTaskHandle();
+
+    INFO(std_printf("\n\t** Requesting NodeID address **\n");)
 
     core_get_hashed_uid(hashed_id);
 
     //send_nocan_msg(bool sys_msg, uint8_t nid, uint8_t func, uint8_t param, uint16_t chid, uint8_t length, void *data)
-    node_id = nocan_get_node_id(sizeof(hashed_id), hashed_id);
+    node_id = nocan_get_node_id(current_task, sizeof(hashed_id), hashed_id);
 
     if (node_id > 0) {
         // success!
@@ -203,9 +208,76 @@ setup_nocan_node_id(void) {
             core_cfg_ptr->node_id = node_id;
             storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
         }
+        // NoCAN protocol says we should ACK back
+        nocan_send_system_msg(core_nocan_node_id(), SYS_ADDRESS_CONFIGURE_ACK, 0, 0, NULL);
     } else {
         // error
         INFO(std_printf("error getting node id\n");)
+    }
+}
+
+
+/******************************************************************************
+    Setup / reqest NoCAN channel id's for node core config / control
+******************************************************************************/
+static void
+setup_nocan_core_subscriptions(void) {
+    uint8_t tmp_buf[MAX_NOCAN_NAME_LEN + 10];
+    uint32_t buf_pos;
+    uint32_t buf_pos_at_dev;
+    TaskHandle_t current_task;
+    int32_t channel_id;
+
+    current_task = xTaskGetCurrentTaskHandle();
+
+    if (core_cfg_ptr->node_name_length != 0) {
+        buf_pos = 0;
+
+        tmp_buf[buf_pos++] = 'd';
+        tmp_buf[buf_pos++] = 'e';
+        tmp_buf[buf_pos++] = 'v';
+        tmp_buf[buf_pos++] = '/';
+
+        buf_pos_at_dev = buf_pos;                                               // save this position for later
+
+        tmp_buf[buf_pos++] = 'a';
+        tmp_buf[buf_pos++] = 'c';
+        tmp_buf[buf_pos++] = 'k';
+
+        channel_id = nocan_get_channel_id(current_task, buf_pos, tmp_buf);
+
+        if (channel_id >= 0) {
+            // successfully assigned a channel id
+            if (channel_id != core_cfg_ptr->chID_ack_out) {
+                core_cfg_ptr->chID_ack_out = (uint16_t)channel_id;
+                storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
+            }
+            INFO_P(std_printf("success, dev/ack ch id: %u\n", channel_id);)
+        } else {
+            // timed out
+            INFO(std_printf("failure! ch id request timed out");)
+        }
+
+        // now do the dev/cmd channel
+        buf_pos = buf_pos_at_dev;
+        
+        for (uint32_t j = 0; j < core_cfg_ptr->node_name_length; j++) {
+            tmp_buf[buf_pos++] = core_cfg_ptr->node_name[j];
+        }
+
+        channel_id = nocan_get_channel_id(current_task, buf_pos, tmp_buf);
+
+        if (channel_id >= 0) {
+            // successfully assigned a channel id
+            if (channel_id != core_cfg_ptr->chID_dev_in) {
+                core_cfg_ptr->chID_dev_in = (uint16_t)channel_id;
+                storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
+            }
+            INFO_P(std_printf("success, dev/name ch id: %u\n", channel_id);)
+        } else {
+            // timed out
+            INFO(std_printf("failure! ch id request timed out");)
+        }
     }
 }
 
@@ -344,11 +416,11 @@ core_config_reset(void) {
         core_cfg_ptr->cfg_finger = CFG_FINGER;
         core_cfg_ptr->cfg_size = sizeof(s_config_core);
         // end header
-        core_cfg_ptr->save_flag = 0x0000;                                        // reset save flag
+        core_cfg_ptr->save_count = 0x0000;                                        // reset save flag
         core_cfg_ptr->boot_count = 0x0000;
         core_cfg_ptr->node_type = core_node_type_is();
         core_cfg_ptr->node_id = 0;                                               // stored when got from NoCAN master
-        core_cfg_ptr->chID_cfg_in = 0xFFFF;                                      // not set
+        core_cfg_ptr->chID_dev_in = 0xFFFF;                                      // not set
         core_cfg_ptr->chID_ack_out = 0xFFFF;                                     // not set
         core_cfg_ptr->chID_sensor = 0xFFFF;                                      // not set
 
@@ -566,14 +638,14 @@ core_print_settings(void) {
     cfg_crc:\t0x%08lX\n\
     cfg_finger:\t0x%04X\n\
     fw_ver:\t%02X.%02X.%02X.%02X\n\
-    cfg_size:\t0x%04X\n\
-    save_flag:\t0x%04X\n\
-    boot_count:\t0x%04X\n\
-    node_type:\t0x%02X\n\
+    cfg_size:\t%u\n\
+    save_count:\t%u\n\
+    boot_count:\t%u\n\
+    node_type:\t%u\n\
     node_id:\t%u\n\
-    chID cfg:\t0x%04X\n\
-    chID ack:\t0x%04X\n\
-    chID sensor:\t0x%04X\n",\
+    chID cfg:\t%u\n\
+    chID ack:\t%u\n\
+    chID sensor:\t%u\n",\
 
     core_cfg_ptr->flash_slot,
     core_cfg_ptr->cfg_crc,
@@ -583,11 +655,11 @@ core_print_settings(void) {
     core_cfg_ptr->fw_version.patch,
     core_cfg_ptr->fw_version.test, 
     core_cfg_ptr->cfg_size,
-    core_cfg_ptr->save_flag,
+    core_cfg_ptr->save_count,
     core_cfg_ptr->boot_count,
     core_cfg_ptr->node_type,
     core_cfg_ptr->node_id,
-    core_cfg_ptr->chID_cfg_in,
+    core_cfg_ptr->chID_dev_in,
     core_cfg_ptr->chID_ack_out,
     core_cfg_ptr->chID_sensor);
 
