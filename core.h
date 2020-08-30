@@ -34,7 +34,8 @@ void            core_init(void);
 void            core_toggle_wdt_led(void);
 void            core_get_hashed_uid(uint16_t*);
 node_t          core_node_type_is(void);
-uint16_t        core_nocan_node_id(void);
+uint8_t         core_nocan_node_id(void);
+void            core_process_nocan_msg(uint16_t, uint8_t, uint8_t *);
 
 #ifdef DEBUG_INFO
 void            core_print_settings(void);

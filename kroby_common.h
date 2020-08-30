@@ -59,9 +59,12 @@
 /******************************************************************************
     KROBY GENERAL DEFINES
  *****************************************************************************/
-#define MAX_NOCAN_NAME_LEN          52
+#define MAX_NOCAN_NAME_LEN              52
+#define NOCAN_SYS_MSG_CAN_FILTER_NUM    0               // STM32 CAN filter number used for system messages
+#define NOCAN_CORE_CAN_FILTER_NUM       1               // STM32 CAN filter number used for kroby core messages
 
-#define CFG_FINGER                  0xAAA8                  // finger print word to help find valid settings in flash
+
+#define CFG_FINGER                      0xAAA8                  // finger print word to help find valid settings in flash
 
 
 

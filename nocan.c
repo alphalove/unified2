@@ -26,7 +26,6 @@ static QueueHandle_t canrxq = 0;
 #define PARM_TS2            CAN_BTR_TS2_2TQ
 #define PARM_BRP            18      // 125 kbps
 
-#define NOCAN_SYS_MSG_CAN_FILTER_NUM    0               // STM32 CAN filter number used for system messages
 #define NOCAN_NODE_MASTER               0               // node id of NoCAN master
 
 
@@ -156,8 +155,8 @@ nocan_init(bool nart, bool locked) {
     API - Queue a NoCAN channel message to be sent
  *****************************************************************************/
 void
-nocan_send_channel_msg(uint8_t nid, uint16_t chid, uint8_t length, void *data) {
-    send_nocan_msg(false, nid, 0, 0, chid, length, data);
+nocan_send_channel_msg(uint16_t chid, uint8_t length, void *data) {
+    send_nocan_msg(false, core_nocan_node_id(), 0, 0, chid, length, data);
 }
 
 
@@ -165,8 +164,8 @@ nocan_send_channel_msg(uint8_t nid, uint16_t chid, uint8_t length, void *data) {
     API - Queue a NoCAN system message to be sent
  *****************************************************************************/
 void
-nocan_send_system_msg(uint8_t nid, uint8_t func, uint8_t param, uint8_t length, void *data) {
-    send_nocan_msg(true, nid, func, param, 0, length, data);
+nocan_send_system_msg(uint8_t func, uint8_t param, uint8_t length, void *data) {
+    send_nocan_msg(true, core_nocan_node_id(), func, param, 0, length, data);
 }
 
 
@@ -387,7 +386,7 @@ nocan_get_node_id(TaskHandle_t calling_task, uint8_t hashed_size, uint8_t *hashe
 
     g_calling_task = calling_task;                                  // set global task handle so CAN processing can unblock
 
-    nocan_send_system_msg(0, SYS_ADDRESS_REQUEST, 0, hashed_size, hashed_id);
+    send_nocan_msg(true, 0, SYS_ADDRESS_REQUEST, 0, 0, hashed_size, hashed_id);             // sys msge with node ID = 0
 
     noti_val = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));       // BLOCKING until notified by NoCAN message receiver or timeout
 
@@ -410,7 +409,7 @@ nocan_get_channel_id(TaskHandle_t calling_task, uint8_t name_size, uint8_t *name
 
     g_calling_task = calling_task;                                  // set global task handle so CAN processing can unblock
 
-    nocan_send_system_msg(core_nocan_node_id(), SYS_CHANNEL_REGISTER, 0, name_size, name);
+    nocan_send_system_msg(SYS_CHANNEL_REGISTER, 0, name_size, name);
 
     noti_val = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));       // BLOCKING until notified by NoCAN message receiver or timeout
 
@@ -432,7 +431,7 @@ nocan_get_channel_id(TaskHandle_t calling_task, uint8_t name_size, uint8_t *name
     that sit in other running tasks
  *********************************************************************/
 static void
-process_nocan_system_msg(s_canmsg *msg) {
+nocan_process_system_msg(s_canmsg *msg) {
     s_nocan_eid eID;
     int32_t nocan_ch_id;
     uint8_t hashed_id[8];
@@ -479,7 +478,6 @@ process_nocan_system_msg(s_canmsg *msg) {
                 vTaskDelay(500);
                 scb_reset_system();                     // openCM3 reset command
                 break;
-
             case SYS_CHANNEL_REGISTER_ACK:                          // (11)
                 if (eID.parameter == 0) {                           // parameter set to 0 if request was successful
                     
@@ -534,9 +532,8 @@ nocan_frame_builder(s_canmsg *msg) {
     if(eID.sys_flag) {
         // never receive system messages longer than 1 NoCAN frame so just process
         frame_cnt = 0;
-        process_nocan_system_msg(msg);
+        nocan_process_system_msg(msg);
     } else {
-
         // this is a PUBLISH NoCAN frame
 
         process_frame = false;
@@ -569,17 +566,15 @@ nocan_frame_builder(s_canmsg *msg) {
             //std_printf("cID: %u\n", eID.chID);
         }
 
-        INFO_PP(
-        std_printf("ChMsg Frame: %u\tFrom: %u\tChID: %u\tData: ", frame_cnt, eID.node_id, eID.chID);
+        INFO_PP(std_printf("ChMsg Frame: %u\tFrom: %u\tChID: %u\tData: ", frame_cnt, eID.node_id, eID.chID);)
 
         for (uint8_t dpos = 0; dpos < msg->length; dpos++) {
             if (dpos != 0) std_printf(", ");
-            std_printf("%02X", msg->data[dpos]);
+            INFO_PP(std_printf("%02X", msg->data[dpos]);)
             nocan_data[(frame_cnt * 8) + dpos] = msg->data[dpos];       // copy this CAN frame data into our 64 byte array
             data_length++;
         }
-        std_printf("\n");
-        )
+        INFO_PP(std_printf("\n");)
 
         if (process_frame) {
 
@@ -587,6 +582,18 @@ nocan_frame_builder(s_canmsg *msg) {
             command |= nocan_data[1];
 
             INFO_P(std_printf("command: 0x%04X, length: %u\n", command, data_length);)
+
+            if (command < LC_TEST_OUTPUTS) {
+                // this is a CORE Kroby NoCAN command
+                core_process_nocan_msg(command, data_length, nocan_data);
+            } else {
+                // this is a CORE Kroby NoCAN command
+                if (core_node_type_is() == LOAD_DC_4CH || core_node_type_is() == LOAD_AC_4CH) {
+                    //lc_process_nocan_msg(command, msg->length, nocan_data);
+                } else {
+                    //sp_process_nocan_msg(command, msg->length, nocan_data);
+                }
+            }
 
             //std_printf("Msg Filter: %u\n", msg->fmi);
             

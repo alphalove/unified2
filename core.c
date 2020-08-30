@@ -121,6 +121,7 @@ static void     core_config_reset(void);
 static uint8_t  nibble_to_ascii(uint8_t);
 static void     core_config_set_new_parameter_defaults(void);
 static void     setup_nocan_node_id(void);
+static void     print_byte(uint8_t, uint8_t *);
 
 
 
@@ -183,6 +184,98 @@ core_init(void) {
     setup_nocan_core_subscriptions();
 }
 
+
+/******************************************************************************
+    API - Process a core NoCAN publish / channel message
+ *****************************************************************************/
+void
+core_process_nocan_msg(uint16_t command, uint8_t data_length, uint8_t *nocan_data) {
+    uint8_t num_ascii[3];
+
+    /*
+    CORE_RESET_NODE = 0x3030,               // ascii 00
+    CORE_SET_NODE_NAME ,                    // 01 
+    CORE_SET_EPOC_TIME,                     // 02
+    CORE_GET_NODE_TYPE,                     // 03
+    CORE_GET_NODE_ID,                       // 04   Will send the node ID back via the ack channel
+    CORE_FACTORY_RESET,                     // 05   reset to factory settings
+    CORE_GET_MAIN_FW_VER,                   // 06
+    CORE_GET_BOOT_FW_VER,                   // 07
+    */
+
+    switch(command) {
+        case CORE_RESET_NODE:
+            INFO(std_printf("core reboot request\n");)
+            vTaskDelay(1000);
+            scb_reset_system();                     // openCM3 reset command
+            break;
+        case CORE_SET_NODE_NAME:
+            INFO_P(std_printf("KRB_SET_NODE_NAME: ");)
+            // TODO - add data_length check to makes sure this isn't an empty string.
+            // or if it is, reset the node name to factory default.
+            for (uint8_t i = 2; i < data_length; i++) {     // skip first 2 as this is the command
+                core_cfg_ptr->node_name[i-2] = nocan_data[i];
+                INFO_P(std_printf("%c", nocan_data[i]);)
+            }
+            INFO_P(std_printf("\n");)
+            core_cfg_ptr->node_name_length = data_length - 2;
+            storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
+            break;
+        case CORE_SET_EPOC_TIME:
+            // TODO
+            INFO_P(std_printf("CORE_SET_EPOC_TIME\n");)
+            break;
+        case CORE_GET_NODE_TYPE:
+            // TODO
+            INFO_P(std_printf("CORE_GET_NODE_TYPE\n");)
+            break;
+        case CORE_GET_NODE_ID:
+            // TODO
+            INFO_P(std_printf("CORE_GET_NODE_ID\n");)
+            print_byte(core_cfg_ptr->node_id, num_ascii);
+            nocan_send_channel_msg(core_cfg_ptr->chID_ack_out, 3, num_ascii);
+            break;
+        case CORE_FACTORY_RESET:
+            INFO_P(std_printf("CORE_FACTORY_RESET\n");)
+            /*
+
+            //std_printf("FS1: 0x%08lX\n", flash_get_status_flags());
+
+            flash_clear_status_flags();
+            flash_unlock();
+            
+            flash_erase_page((uint32_t)CFG_CORE_ADDR);
+            
+            if (flash_get_status_flags() != FLASH_SR_EOP) {
+                std_printf("Core Erase Fail\n");
+            }
+            
+            flash_erase_page((uint32_t)CFG_ATTR_ADDR);
+
+            if (flash_get_status_flags() != FLASH_SR_EOP) {
+                std_printf("Trait Erase Fail\n");
+            }
+
+            flash_lock();
+
+            std_printf("NoCAN reboot request!");
+            vTaskDelay(100);
+            scb_reset_system();                     // openCM3 reset command
+            */
+            break;
+        case CORE_GET_MAIN_FW_VER:
+            // TODO
+            INFO_P(std_printf("CORE_FACTORY_RESET\n");)
+            break;
+        case CORE_GET_BOOT_FW_VER:
+            // TODO
+            INFO_P(std_printf("CORE_FACTORY_RESET\n");)
+            break;
+        default:
+            INFO(std_printf("CORE msg not handled\n");)
+    }
+}
+
 /******************************************************************************
     Request NoCAN node ID from NoCAN master
  *****************************************************************************/
@@ -209,7 +302,8 @@ setup_nocan_node_id(void) {
             storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
         }
         // NoCAN protocol says we should ACK back
-        nocan_send_system_msg(core_nocan_node_id(), SYS_ADDRESS_CONFIGURE_ACK, 0, 0, NULL);
+        nocan_send_system_msg(SYS_ADDRESS_CONFIGURE_ACK, 0, 0, NULL);
+        nocan_set_nodeid_system_msg_filter(NOCAN_SYS_MSG_CAN_FILTER_NUM, node_id);
     } else {
         // error
         INFO(std_printf("error getting node id\n");)
@@ -274,6 +368,7 @@ setup_nocan_core_subscriptions(void) {
                 storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
             }
             INFO_P(std_printf("success, dev/name ch id: %u\n", channel_id);)
+            nocan_set_channel_filter32(NOCAN_CORE_CAN_FILTER_NUM, channel_id);
         } else {
             // timed out
             INFO(std_printf("failure! ch id request timed out");)
@@ -305,7 +400,7 @@ core_node_type_is(void) {
 /******************************************************************************
     API - returns the node nocan id
  *****************************************************************************/
-uint16_t
+uint8_t
 core_nocan_node_id(void) {
     return core_cfg_ptr->node_id;
 }
@@ -398,8 +493,6 @@ core_config_set_new_parameter_defaults(void) {
     core_cfg_ptr->fw_version.version = MAIN_FW_VERSION;
     storage_save_config(CFG_CORE_ADDR, (void*)core_cfg_ptr);
 }
-
-
 
 
 /******************************************************************************
@@ -629,7 +722,44 @@ pseudo_hash(uint16_t *src, uint16_t *dst) {
     dst[3] = D;
 }
 
+
+/******************************************************************************
+    Converts a byte into a decimal ascii representation
+ ******************************************************************************/
+static void
+print_byte(uint8_t num, uint8_t *num_ascii) {
+    uint8_t num_h, num_t, num_o;
+    // the / gives the quotient
+    // the % gives the remainder
+
+    num_h = num / 100;      // get number of 100's in num
+    num = num % 100;        // get the remainder after the 100's
+
+    num_t = num / 10;       // get number of 10's in remaining num
+    num = num % 10;         // get the remainder after the 10's
+
+    num_o = num / 1;        // get number of 1's in the remaining num
+
+    if (num_h != 0) {
+        num_ascii[0] = (num_h + '0');
+        //std_printf(num_h + '0');
+    }
+
+    if (num_t != 0) {
+        num_ascii[1] = (num_t + '0');
+        //std_printf(num_t + '0');
+    }
+
+    if (num_o != 0) {
+        num_ascii[2] = (num_o + '0');
+        //std_printf(num_o + '0');
+    }
+}
+
 #ifdef DEBUG_INFO
+/******************************************************************************
+    Prints out core node details
+ ******************************************************************************/
 void
 core_print_settings(void) {
     std_printf("\

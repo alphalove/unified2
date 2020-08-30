@@ -155,6 +155,7 @@ setup_nocan_channel_subscriptions(void) {
                 // successfully assigned a channel id
                 lc_cfg_ptr->lc_subs[i].chID_cmd_in = (uint16_t)channel_id;
                 INFO_P(std_printf("success, cmd/ ch id: %u\n", channel_id);)
+                nocan_set_channel_filter32(lc_cfg_ptr->lc_subs[i].canfilter, channel_id);
             } else {
                 // timed out
                 INFO(std_printf("failure! ch id request timed out");)
