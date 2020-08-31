@@ -49,7 +49,7 @@ storage_get_config(uint32_t config_flash_address, uint32_t config_size, void* co
     if (config_ptr != NULL) {
 
         if (config_h->cfg_finger == CFG_FINGER) {
-            INFO_P(std_printf("found CFG_FINGER\n"););
+            INFO_PP(std_printf("found CFG_FINGER\n"););
 
             // copy the size malloc'd based on the compiled struct, not what is stored
             copy_flash_to_sram(config_flash_address, config_size, (uint8_t*)config_ptr);
@@ -71,14 +71,14 @@ storage_get_config(uint32_t config_flash_address, uint32_t config_size, void* co
             // may have a bigger struct, so want ot read valid config, then we'll update the 
             // new parameters, then save the bigger struct back to FLASH
             if (config_h->cfg_crc == calculate_config_crc(config_h->cfg_size, config_ptr)) {
-                INFO_P(std_printf("FLASH config CRC OK\n");)
+                INFO_PP(std_printf("FLASH config CRC OK\n");)
                 return 0;
             } else {
-                INFO_P(std_printf("FLASH config CRC incorrect\n");)
+                INFO_PP(std_printf("FLASH config CRC incorrect\n");)
                 return -2;
             }
         } else {
-            INFO_P(std_printf("FLASH config no finger print found\n");)
+            INFO_PP(std_printf("FLASH config no finger print found\n");)
             return -1;
         }
     } else {
@@ -127,6 +127,31 @@ storage_save_config(uint32_t config_flash_address, void* config_ptr) {
     return 0;
 }
 
+
+/******************************************************************************
+    Copy FLASH memory into new SRAM location
+ *****************************************************************************/
+void
+storage_clear_flash_configs(void) {
+    INFO_P(std_printf("clearing core and LC / SP configs from FLASH\n");)
+
+    flash_clear_status_flags();
+    flash_unlock();
+    
+    flash_erase_page((uint32_t)CFG_CORE_ADDR);
+    
+    if (flash_get_status_flags() != FLASH_SR_EOP) {
+        INFO(std_printf("Core FLASH erase fail\n");)
+    }
+    
+    flash_erase_page((uint32_t)CFG_LC_ADDR);
+
+    if (flash_get_status_flags() != FLASH_SR_EOP) {
+        INFO(std_printf("LC / SP FLASH erase fail\n");)
+    }
+
+    flash_lock();
+}
 
 /******************************************************************************
     Copy FLASH memory into new SRAM location

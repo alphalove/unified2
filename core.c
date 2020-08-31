@@ -233,43 +233,22 @@ core_process_nocan_msg(uint16_t command, uint8_t data_length, uint8_t *nocan_dat
             // TODO
             INFO_P(std_printf("CORE_GET_NODE_ID\n");)
             print_byte(core_cfg_ptr->node_id, num_ascii);
+            //TODO - fix 3 byte send for 1 and 2 digit node numbers
             nocan_send_channel_msg(core_cfg_ptr->chID_ack_out, 3, num_ascii);
             break;
         case CORE_FACTORY_RESET:
             INFO_P(std_printf("CORE_FACTORY_RESET\n");)
-            /*
-
-            //std_printf("FS1: 0x%08lX\n", flash_get_status_flags());
-
-            flash_clear_status_flags();
-            flash_unlock();
-            
-            flash_erase_page((uint32_t)CFG_CORE_ADDR);
-            
-            if (flash_get_status_flags() != FLASH_SR_EOP) {
-                std_printf("Core Erase Fail\n");
-            }
-            
-            flash_erase_page((uint32_t)CFG_ATTR_ADDR);
-
-            if (flash_get_status_flags() != FLASH_SR_EOP) {
-                std_printf("Trait Erase Fail\n");
-            }
-
-            flash_lock();
-
-            std_printf("NoCAN reboot request!");
-            vTaskDelay(100);
+            storage_clear_flash_configs();          // clear FLASH, boot-up will re-write defaults
+            vTaskDelay(200);                
             scb_reset_system();                     // openCM3 reset command
-            */
             break;
         case CORE_GET_MAIN_FW_VER:
             // TODO
-            INFO_P(std_printf("CORE_FACTORY_RESET\n");)
+            INFO_P(std_printf("CORE_GET_MAIN_FW_VER\n");)
             break;
         case CORE_GET_BOOT_FW_VER:
             // TODO
-            INFO_P(std_printf("CORE_FACTORY_RESET\n");)
+            INFO_P(std_printf("CORE_GET_BOOT_FW_VER\n");)
             break;
         default:
             INFO(std_printf("CORE msg not handled\n");)
@@ -324,6 +303,8 @@ setup_nocan_core_subscriptions(void) {
 
     current_task = xTaskGetCurrentTaskHandle();
 
+    INFO(std_printf("\n\t** Requesting Core dev/ and ack channel IDs **\n");)
+
     if (core_cfg_ptr->node_name_length != 0) {
         buf_pos = 0;
 
@@ -352,11 +333,11 @@ setup_nocan_core_subscriptions(void) {
             INFO(std_printf("failure! ch id request timed out");)
         }
 
-        // now do the dev/cmd channel
+        // now do the dev/node_name cmd channel
         buf_pos = buf_pos_at_dev;
         
-        for (uint32_t j = 0; j < core_cfg_ptr->node_name_length; j++) {
-            tmp_buf[buf_pos++] = core_cfg_ptr->node_name[j];
+        for (uint32_t i = 0; i < core_cfg_ptr->node_name_length; i++) {
+            tmp_buf[buf_pos++] = core_cfg_ptr->node_name[i];
         }
 
         channel_id = nocan_get_channel_id(current_task, buf_pos, tmp_buf);
@@ -367,7 +348,7 @@ setup_nocan_core_subscriptions(void) {
                 core_cfg_ptr->chID_dev_in = (uint16_t)channel_id;
                 storage_save_config(CFG_CORE_ADDR, (void *)core_cfg_ptr);
             }
-            INFO_P(std_printf("success, dev/name ch id: %u\n", channel_id);)
+            INFO_P(std_printf("success, dev/xxx ch id: %u\n", channel_id);)
             nocan_set_channel_filter32(NOCAN_CORE_CAN_FILTER_NUM, channel_id);
         } else {
             // timed out
@@ -626,7 +607,7 @@ discover_node_type(void) {
         lookup_row = adc_pa5 / ADC_QUANTIZE_VAL;
     }
     
-    INFO_P(std_printf("col:%u\t\trow:%u\n", lookup_column, lookup_row););
+    INFO_PP(std_printf("col:%u\t\trow:%u\n", lookup_column, lookup_row););
     
     return node_lookup[(lookup_row * QUANTIZE_NUM) + lookup_column];
 }

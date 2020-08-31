@@ -78,6 +78,7 @@ static void     send_nocan_msg(bool, uint8_t, uint8_t, uint8_t, uint16_t, uint8_
 static void     can_rx_isr(uint8_t, uint8_t);
 static void     task_process_can_rx(void *arg __attribute((unused)));
 static void     nocan_frame_builder(s_canmsg *);
+static void     nocan_process_system_msg(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t *);
 
 static void     test_callback(void);
 
@@ -148,24 +149,6 @@ nocan_init(bool nart, bool locked) {
     nocan_set_all_system_msg_filter(NOCAN_SYS_MSG_CAN_FILTER_NUM);              // initial filter to allow all sys trafic
 
     xTaskCreate(task_process_can_rx, "canrx", 200, NULL, configMAX_PRIORITIES-1, NULL);
-}
-
-
-/******************************************************************************
-    API - Queue a NoCAN channel message to be sent
- *****************************************************************************/
-void
-nocan_send_channel_msg(uint16_t chid, uint8_t length, void *data) {
-    send_nocan_msg(false, core_nocan_node_id(), 0, 0, chid, length, data);
-}
-
-
-/******************************************************************************
-    API - Queue a NoCAN system message to be sent
- *****************************************************************************/
-void
-nocan_send_system_msg(uint8_t func, uint8_t param, uint8_t length, void *data) {
-    send_nocan_msg(true, core_nocan_node_id(), func, param, 0, length, data);
 }
 
 
@@ -265,6 +248,22 @@ can_xmit(uint32_t id,bool ext,bool rtr,uint8_t length,void *data) {
 }
 
 
+/******************************************************************************
+    API - Queue a NoCAN channel message to be sent
+ *****************************************************************************/
+void
+nocan_send_channel_msg(uint16_t chid, uint8_t length, void *data) {
+    send_nocan_msg(false, core_nocan_node_id(), 0, 0, chid, length, data);
+}
+
+
+/******************************************************************************
+    API - Queue a NoCAN system message to be sent
+ *****************************************************************************/
+void
+nocan_send_system_msg(uint8_t func, uint8_t param, uint8_t length, void *data) {
+    send_nocan_msg(true, core_nocan_node_id(), func, param, 0, length, data);
+}
 
 /******************************************************************************
  * Queue an NOCAN channel or system frame to be sent:
@@ -284,11 +283,11 @@ send_nocan_msg(bool sys_msg, uint8_t nid, uint8_t func, uint8_t param, uint16_t 
 
     if (sys_msg == true) {
         eID.sys_flag    = 1;                // system packet
-        eID.function    = func;
-        eID.parameter   = param;
+        eID.function    = func;             // NoCAN SYS message type
+        eID.parameter   = param;            // optional parameter
     } else {
         eID.sys_flag    = 0;                // publish packet    
-        eID.chID        = chid;
+        eID.chID        = chid;             // NoCAN channel ID
     }
     
     while (length > 8) {
@@ -324,7 +323,7 @@ send_nocan_msg(bool sys_msg, uint8_t nid, uint8_t func, uint8_t param, uint16_t 
     // can_transmit( canport, can id, ext frame, rtr, data len, data pointer )
     // returns int 0, 1 or 2 on success and depending on which outgoing mailbox got selected.
     // -1 if no mailbox was available and no transmission got queued.
-    while ( can_transmit(CAN1,*(uint32_t*)&eID,true,false,length,(uint8_t*)data) == -1 )
+    while ( can_transmit(CAN1,*(uint32_t*)&eID,true,false,length,ptr_8) == -1 )
         taskYIELD();
 }
 
@@ -394,7 +393,7 @@ nocan_get_node_id(TaskHandle_t calling_task, uint8_t hashed_size, uint8_t *hashe
         INFO(std_printf("timeout waiting for NoCAN node ID\n");)
         return -1;
     } else {
-        INFO(std_printf("new node id: %u\n", noti_val);)
+        //INFO(std_printf("new node id: %u\n", noti_val);)
         return (int16_t)noti_val;
     }
 }
@@ -413,12 +412,17 @@ nocan_get_channel_id(TaskHandle_t calling_task, uint8_t name_size, uint8_t *name
 
     noti_val = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));       // BLOCKING until notified by NoCAN message receiver or timeout
 
+    // !!
+    // UGLY!! - 0 is a valid NoCAN channel ID, 0 is also the timeout value of ulTaskNotifyTake.
+    // so we add 1 to the received NoCAN channel number, then 'pass' it back here via the task unblock
+    // then just take one off it...
+    // !!
     if (noti_val == 0) {                                            // ulTaskNotifyTake returns 0 if timed out
         INFO(std_printf("Timeout waiting for channel id\n");)
         return -1;
     } else {
-        INFO(std_printf("new channel id: %u\n", noti_val);)
-        return (int16_t)noti_val;
+        //INFO(std_printf("new channel id: %u\n", noti_val);)
+        return ((int16_t)noti_val - 1);
     }
 }
 
@@ -430,72 +434,79 @@ nocan_get_channel_id(TaskHandle_t calling_task, uint8_t name_size, uint8_t *name
     so the xTaskNotify can call back to the blocked functions
     that sit in other running tasks
  *********************************************************************/
+// TODO - refactor so this function just recieved the data it needs, not the raw CAN message
 static void
-nocan_process_system_msg(s_canmsg *msg) {
-    s_nocan_eid eID;
+nocan_process_system_msg(uint8_t rx_node_id, uint8_t sys_command,
+                         uint8_t sys_parameter, uint8_t data_length, uint8_t *data) {
     int32_t nocan_ch_id;
     uint8_t hashed_id[8];
     bool id_match;
 
-
-    *(uint32_t*)&eID = msg->msgid;              // cast struct to uint32_t
-
-    if (eID.sys_flag && ((eID.node_id == core_nocan_node_id()) || (eID.node_id == NOCAN_NODE_MASTER))) {       
-        INFO_PP(std_printf("SysMsg->\tFrom: %u\tFunc: %u\tPara: %u\tData: ", eID.node_id, eID.function, eID.parameter);)
+    if (rx_node_id == core_nocan_node_id() || rx_node_id == NOCAN_NODE_MASTER) {       
+        INFO_PP(std_printf("SysMsg->\tFrom: %u\tFunc: %u\tPara: %u\tData: ", rx_node_id, sys_command, sys_parameter);)
         INFO_PP(
-        for (uint8_t dpos = 0; dpos < msg->length; dpos++) { 
+        for (uint8_t dpos = 0; dpos < data_length; dpos++) { 
             //if (dpos == 0) std_printf("0x ");
             if (dpos != 0) std_printf(", ");                                              // print data bytes
-            std_printf("%02X", msg->data[dpos]);
+            std_printf("%02X", data[dpos]);
         }
         std_printf("\n");
         )
 
-        switch (eID.function) {
+        switch (sys_command) {
             // NoCAN System Functions
-            case SYS_ADDRESS_CONFIGURE:                     // (2)
+            case SYS_ADDRESS_CONFIGURE:                     // (2) response to our SYS_CHANNEL_REGISTER request
                 // response to request, parameter has new nodeID, data should match our uID
                 id_match = true;
                 core_get_hashed_uid((uint16_t *)hashed_id);
                 
                 for (uint8_t x = 0; x < 8; x++) {
-                    if (hashed_id[x] != msg->data[x]) {       // check if received nodeID matches ours
+                    if (hashed_id[x] != data[x]) {       // check if received nodeID matches ours
                         id_match = false;
                     }
                 }
 
                 if (id_match) {
-                    INFO_P(std_printf("SYS_ADDRESS_CONFIGURE match\n");)
+                    INFO_P(std_printf("SYS_ADDRESS_CONFIGURE - match\n");)
                     // todo - NoCAN master can reply with parameter of 255 on failure
-                    xTaskNotify(g_calling_task, eID.parameter, eSetValueWithOverwrite); // unblock task
-
+                    xTaskNotify(g_calling_task, sys_parameter, eSetValueWithOverwrite); // unblock waiting handler task
                 } else {
-                    INFO_P(std_printf("SYS_ADDRESS_CONFIGURE not for us\n");)
+                    // don't return anything to the calling nocan_get_node_id() as we often get
+                    // messages that aren't for use during the boot of lots of nodes prior to the
+                    // node_id specific CAN filter being set.  The idea is we will get a response for
+                    // us within the ulTaskNotifyTake timeout period.  If we don't, then that timeout
+                    // handles the case that we didn't get an ID within the timeout period.
+                    INFO(std_printf("SYS_ADDRESS_CONFIGURE - not for us\n");)
                 }
                 break;
             case SYS_NODE_BOOT_REQUEST:                 // (6)
-                INFO(std_printf("NoCAN SYSTEM reboot request!");)
+                INFO(std_printf("NoCAN SYS reboot requested");)
                 vTaskDelay(500);
                 scb_reset_system();                     // openCM3 reset command
                 break;
-            case SYS_CHANNEL_REGISTER_ACK:                          // (11)
-                if (eID.parameter == 0) {                           // parameter set to 0 if request was successful
+            case SYS_CHANNEL_REGISTER_ACK:                          // (11) respons to our SYS_CHANNEL_REGISTER request
+                if (sys_parameter == 0) {                           // parameter set to 0 if request was successful
                     
-                    nocan_ch_id = msg->data[0] << 8;
-                    nocan_ch_id |= (msg->data[1] & 0xFF);
+                    nocan_ch_id = data[0] << 8;
+                    nocan_ch_id |= (data[1] & 0xFF);
 
-                    INFO_P(std_printf("SYS_CHANNEL_REGISTER_ACK ch id:\n", nocan_ch_id);)
-                    
-                    xTaskNotify(g_calling_task, nocan_ch_id, eSetValueWithOverwrite); // unblock task
+                    INFO_P(std_printf("Received SYS_CHANNEL_REGISTER_ACK\n", nocan_ch_id);)
+                    // UGLY!! - 0 is a valid NoCAN channel, 0 is also the ulTaskNotifyTake time out value !!
+                    // so we add 1 to the received nocan_ch_id and 'return' it, then just subtract the 1 off
+                    // when assigning it to the channel...
+                    xTaskNotify(g_calling_task, (nocan_ch_id + 1), eSetValueWithOverwrite); // unblock waiting handler task
                 } else {
                     INFO(std_printf("NoCAN master could not assign chID\n");)
-                    
-                    //xTaskNotify(xTask_chan_reg_ack, *(uint32_t*)&task_msg, eSetValueWithOverwrite); // unblock task
+                    // just let blocking task timeout and handle the failure, as we may get another valid
+                    // address within the timout period
                 }
                 break;
             default:
                 INFO(std_printf("SYS handler not yet implemented\n");)
         }
+    } else {
+        // SYS message does not have a valid receiveing node id
+        INFO(std_printf("SYS msg has invalid rx node id\n");)
     }
 }
 
@@ -532,7 +543,7 @@ nocan_frame_builder(s_canmsg *msg) {
     if(eID.sys_flag) {
         // never receive system messages longer than 1 NoCAN frame so just process
         frame_cnt = 0;
-        nocan_process_system_msg(msg);
+        nocan_process_system_msg(eID.node_id, eID.function, eID.parameter, msg->length, msg->data);
     } else {
         // this is a PUBLISH NoCAN frame
 
