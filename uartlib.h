@@ -26,8 +26,7 @@ int open_uart(uint32_t uartno,uint32_t baud,const char *cfg,const char *mode,int
 void close_uart(uint32_t uartno);
 
 int putc_uart_nb(uint32_t uartno,char ch);			/* non-blocking */
-void putc_uart(uint32_t uartno,char ch);			/* blocking RTOS*/
-void putc_uartNR(uint32_t uartno,char ch);			/* blocking no RTOS*/
+void putc_uart(uint32_t uartno,char ch);			/* blocking */
 void write_uart(uint32_t uartno,const char *buf,uint32_t size); /* blocking */
 void puts_uart(uint32_t uartno,const char *buf);		/* blocking */
 int getc_uart_nb(uint32_t uartno);				/* non-blocking */
@@ -35,10 +34,8 @@ char getc_uart(uint32_t uartno);				/* blocking */
 int getline_uart(uint32_t uartno,char *buf,uint32_t bufsiz);	/* blocking */
 
 void uart1_putc(char ch);
-void uart1_putcNR(char ch);
 void uart1_puts(const char *buf);
 int uart1_vprintf(const char *format,va_list ap);
-int uart1_vprintfNR(const char *format,va_list ap);
 int uart1_printf(const char *format,...) __attribute((format(printf,1,2)));
 int uart1_getc(void);
 int uart1_peek(void);
@@ -47,10 +44,8 @@ void uart1_write(const char *buf,unsigned bytes);
 int uart1_getline(char *buf,unsigned bufsiz);
 
 void uart2_putc(char ch);
-void uart2_putcNR(char ch);
 void uart2_puts(const char *buf);
 int uart2_vprintf(const char *format,va_list ap);
-int uart2_vprintfNR(const char *format,va_list ap);
 int uart2_printf(const char *format,...) __attribute((format(printf,1,2)));
 int uart2_getc(void);
 int uart2_peek(void);
@@ -59,10 +54,8 @@ void uart2_write(const char *buf,unsigned bytes);
 int uart2_getline(char *buf,unsigned bufsiz);
 
 void uart3_putc(char ch);
-void uart3_putcNR(char ch);
 void uart3_puts(const char *buf);
 int uart3_vprintf(const char *format,va_list ap);
-int uart3_vprintfNR(const char *format,va_list ap);
 int uart3_printf(const char *format,...) __attribute((format(printf,1,2)));
 int uart3_getc(void);
 int uart3_peek(void);

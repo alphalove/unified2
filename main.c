@@ -107,6 +107,7 @@ task_main_init_then_wdt(void *args __attribute((unused))) {
 
     }
 
+    INFO(std_printf("\tStart WDT\n");)
     for (;;) {
         iwdg_reset();                                                           // feed the dog
         core_toggle_wdt_led();

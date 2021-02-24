@@ -35,10 +35,12 @@ void            core_toggle_wdt_led(void);
 void            core_get_hashed_uid(uint16_t*);
 node_t          core_node_type_is(void);
 uint8_t         core_nocan_node_id(void);
-void            core_process_nocan_msg(uint16_t, uint8_t, uint8_t *);
+void            core_process_kroby_msg(uint16_t, uint8_t, uint8_t *);
+uint8_t         core_get_node_name_length(void);
+uint8_t*        core_get_node_name_ptr(void);
 
 #ifdef DEBUG_INFO
-void            core_print_settings(void);
+    void core_print_settings(void);
 #endif
 
 #endif

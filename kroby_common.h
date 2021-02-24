@@ -14,7 +14,7 @@
 /******************************************************************************
     Main Firmware Version and Config over-write
  *****************************************************************************/
-#define MAIN_FW_VERSION         0x00000002      // 0.0.0.X
+#define MAIN_FW_VERSION         0x00000003      // 0.0.0.X
 
 #define LOAD_CORE_DEFAULTS      true            // set true if you want core defaults to be loaded with new VERSION
 #define LOAD_LC_DEFAULTS        true            // set true if LC parameter defaults are to be loaded with new VERSION

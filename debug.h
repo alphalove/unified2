@@ -4,7 +4,7 @@
 
 #define DEBUG_INFO
 #define DEBUG_INFO_PLUS
-//#define DEBUG_INFO_PLUS_PLUS
+#define DEBUG_INFO_PLUS_PLUS
 
 
 #ifdef DEBUG_INFO

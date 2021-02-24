@@ -108,7 +108,7 @@ storage_save_config(uint32_t config_flash_address, void* config_ptr) {
 
     config_h->cfg_crc = calculate_config_crc(config_h->cfg_size, config_ptr);                   // calculate new CRC for any changed data
 
-    INFO_PP(std_printfNR("saving %d bytes with crc 0x%08lX to addr: 0x%08lX\n", config_h->cfg_size, config_h->cfg_crc, config_flash_address);)
+    INFO_PP(std_printf("saving %d bytes with crc 0x%08lX to addr: 0x%08lX\n", config_h->cfg_size, config_h->cfg_crc, config_flash_address);)
 
     result = write_sram_to_flash(config_flash_address, config_h->cfg_size, (uint8_t *)config_ptr);
 
@@ -206,6 +206,8 @@ write_sram_to_flash(uint32_t flash_address, uint16_t num_elements, uint8_t *inpu
     //if((start_address - FLASH_START) >= (FLASH_PAGE_SIZE * (FLASH_PAGE_NUM_MAX+1)))
     //    return 1;
 
+    INFO(std_printf("Flash write addr: 0x%08lX\n", flash_address););
+
     if (flash_address == CFG_CORE_ADDR ||
         flash_address == CFG_LC_ADDR ||
         flash_address == CFG_SP_ADDR) {
@@ -240,6 +242,7 @@ write_sram_to_flash(uint32_t flash_address, uint16_t num_elements, uint8_t *inpu
         }
     } else {
         INFO(std_printf("fail config flash write to forbiddent address\n");)
+        INFO(std_printf("Flash write addr: 0x%08lX\n", flash_address););
         return -1;
     }
     // flash programming successful

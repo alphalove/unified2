@@ -41,7 +41,6 @@ struct s_mcuio {
 	putch_t		putc;		// put character
 	puts_t		puts;		// put string
 	vprintf_t	vprintf;
-	vprintf_t	vprintfNR;
 	getch_t		getc;		// get character
 	peek_t		peek;		// peek at a character
 	gets_t		gets;		// get a line (string)
@@ -68,7 +67,6 @@ extern const struct s_mcuio
 static inline void mcu_putc(const struct s_mcuio *dev,char ch) { dev->putc(ch); }
 static inline void mcu_puts(const struct s_mcuio *dev,const char *buf) { dev->puts(buf); }
 static inline int mcu_vprintf(const struct s_mcuio *dev,const char *format,va_list ap) { return dev->vprintf(format,ap); }
-static inline int mcu_vprintfNR(const struct s_mcuio *dev,const char *format,va_list ap) { return dev->vprintfNR(format,ap); }
 int mcu_printf(const struct s_mcuio *dev,const char *format,...) __attribute((format(printf,2,3)));
 static inline int mcu_getc(const struct s_mcuio *dev) { return dev->getc(); }
 static inline int mcu_peek(const struct s_mcuio *dev) { return dev->peek(); }
@@ -85,9 +83,7 @@ static inline void std_set_device(const struct s_mcuio *device) { mcu_stdio = de
 static inline void std_putc(char ch) { mcu_putc(mcu_stdio,ch); }
 static inline void std_puts(const char *buf) { mcu_puts(mcu_stdio,buf); }
 static inline int std_vprintf(const char *format,va_list ap) { return mcu_stdio->vprintf(format,ap); }
-static inline int std_vprintfNR(const char *format,va_list ap) { return mcu_stdio->vprintf(format,ap); }
 int std_printf(const char *format,...) __attribute((format(printf,1,2)));
-int std_printfNR(const char *format,...) __attribute((format(printf,1,2)));
 static inline int std_getc(void) { return mcu_getc(mcu_stdio); }
 static inline int std_peek(void) { return mcu_peek(mcu_stdio); }
 static inline int std_gets(char *buf,unsigned maxbuf) { return mcu_gets(mcu_stdio,buf,maxbuf); }

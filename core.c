@@ -86,9 +86,9 @@ typedef struct {
     uint8_t             node_name_length;                   // name siez, not null terminated!
     uint16_t            chID_dev_in;                        // NoCAN PUBLISH channel used to configure this node
     uint16_t            chID_ack_out;                       // NoCAN PUBLISH channel used to publish node status information
-    uint16_t            chID_sensor;                        // NoCAN PUBLISH channel used to publish sensor telemetry data
-    char                sensor_name[MAX_NOCAN_NAME_LEN];    // NoCAN channel name used for sensor registration
-    uint8_t             sensor_name_length;                 // NoCAN channel name used for sensor registration
+    //uint16_t            chID_sensor;                        // NoCAN PUBLISH channel used to publish sensor telemetry data
+    //char                sensor_name[MAX_NOCAN_NAME_LEN];    // NoCAN channel name used for sensor registration
+    //uint8_t             sensor_name_length;                 // NoCAN channel name used for sensor registration
     //uint8_t             test;
 
     // add new parameters to end of struct
@@ -186,10 +186,11 @@ core_init(void) {
 
 
 /******************************************************************************
-    API - Process a core NoCAN publish / channel message
+    API -   Handle node / core Kroby message such as set_node_name,
+            factory_reset, get_node_type, etc.
  *****************************************************************************/
 void
-core_process_nocan_msg(uint16_t command, uint8_t data_length, uint8_t *nocan_data) {
+core_process_kroby_msg(uint16_t command, uint8_t data_length, uint8_t *nocan_data) {
     uint8_t num_ascii[3];
 
     /*
@@ -355,8 +356,7 @@ setup_nocan_core_subscriptions(void) {
             INFO(std_printf("failure! ch id request timed out");)
         }
     }
-}
-
+}   
 
 /******************************************************************************
     API - allows toggle of WDT led if node has one
@@ -496,10 +496,10 @@ core_config_reset(void) {
         core_cfg_ptr->node_id = 0;                                               // stored when got from NoCAN master
         core_cfg_ptr->chID_dev_in = 0xFFFF;                                      // not set
         core_cfg_ptr->chID_ack_out = 0xFFFF;                                     // not set
-        core_cfg_ptr->chID_sensor = 0xFFFF;                                      // not set
+        //core_cfg_ptr->chID_sensor = 0xFFFF;                                      // not set
 
         // sensor_name[] will use node name as default
-        core_cfg_ptr->sensor_name_length = 0;                                    // 0 shows not in use
+        //core_cfg_ptr->sensor_name_length = 0;                                    // 0 shows not in use
 
         // get the hashed UDID
         core_get_hashed_uid((uint16_t *)name);
@@ -737,6 +737,23 @@ print_byte(uint8_t num, uint8_t *num_ascii) {
     }
 }
 
+/******************************************************************************
+    API - returns node name length
+ ******************************************************************************/
+uint8_t
+core_get_node_name_length(void) {
+    return core_cfg_ptr->node_name_length;
+}
+
+/******************************************************************************
+    API - returns node name pointer
+ ******************************************************************************/
+uint8_t*
+core_get_node_name_ptr(void)
+{
+    return core_cfg_ptr->node_name;
+}
+
 #ifdef DEBUG_INFO
 /******************************************************************************
     Prints out core node details
@@ -755,8 +772,7 @@ core_print_settings(void) {
     node_type:\t%u\n\
     node_id:\t%u\n\
     chID cfg:\t%u\n\
-    chID ack:\t%u\n\
-    chID sensor:\t%u\n",\
+    chID ack:\t%u\n",\
 
     core_cfg_ptr->flash_slot,
     core_cfg_ptr->cfg_crc,
@@ -771,8 +787,7 @@ core_print_settings(void) {
     core_cfg_ptr->node_type,
     core_cfg_ptr->node_id,
     core_cfg_ptr->chID_dev_in,
-    core_cfg_ptr->chID_ack_out,
-    core_cfg_ptr->chID_sensor);
+    core_cfg_ptr->chID_ack_out);
 
 
     std_printf("    node name:\t");

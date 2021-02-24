@@ -19,18 +19,17 @@
 
 static QueueHandle_t canrxq = 0;
 
-
 #define CAN_TX_ENABLE_PIN   GPIO10
 #define PARM_SJW            CAN_BTR_SJW_1TQ
 #define PARM_TS1            CAN_BTR_TS1_13TQ
 #define PARM_TS2            CAN_BTR_TS2_2TQ
-#define PARM_BRP            18      // 125 kbps
+#define PARM_BRP            18                  // 125 kbps CAN bus speed
 
-#define NOCAN_NODE_MASTER               0               // node id of NoCAN master
+#define NOCAN_NODE_MASTER   0                   // node id of NoCAN master
 
 
-/* This struct is a unit32_t that is popluated with / from the 
- * eID portion of a CAN frame, i.e. the msgid
+/* This struct is a unit32_t that is for the 
+   eID portion of a CAN frame, i.e. the msgid
  */
 typedef struct {
     // little endian
@@ -51,7 +50,7 @@ typedef struct {
 
 
 /* This struct is used to hold all the information to send and received
- * a CAN frame
+   a CAN frame
  */
 typedef struct {
     uint32_t    msgid;          // Message ID
@@ -67,6 +66,7 @@ typedef struct {
 //void(function_ptr*)()    can_filter_cb[NUM_STM32_CAN_FILTERS];
 uint32_t        can_filter_cb[NUM_STM32_CAN_FILTERS];
 
+// this is used by 
 TaskHandle_t g_calling_task;
 
 
@@ -223,8 +223,9 @@ nocan_set_nodeid_system_msg_filter(uint32_t filter_num, uint8_t node_id) {
 
 
 /******************************************************************************
-    RTOS TASK - Process queue and call can_rx_callback()
-                for each CAN message received
+    RTOS TASK - Task unblocks when a CAN message is added to the queue
+                by the can_rx_isr.  This function then calls the
+                nocan frame builder function
  *****************************************************************************/
 static void
 task_process_can_rx(void *arg __attribute((unused))) {
@@ -328,9 +329,9 @@ send_nocan_msg(bool sys_msg, uint8_t nid, uint8_t func, uint8_t param, uint16_t 
 }
 
 /*********************************************************************
- * Main CAN RX ISR routine for FIFO x
- * called by FIFO 0 or 1 ISR and moves
- * can frame from FIFO to our can message struct
+   Called by our libopenCM3 CAN RX ISR FIFO 0 and 1 wrapper
+   This function copies the received CAN frame from FIFO 0 or 1 
+   to our CAN message struct then adds it to the CAN message queue
  *****************************************************************************/
 static void
 can_rx_isr(uint8_t fifo,uint8_t msgcount) {
@@ -338,9 +339,9 @@ can_rx_isr(uint8_t fifo,uint8_t msgcount) {
     bool xmsgidf, rtrf;
 
     while ( msgcount-- > 0 ) {
-        can_receive(                // libopenCM3 fucntion
+        can_receive(                // libopenCM3 fucntion, polulates our struct parameters
             CAN1,
-            fifo,                   // FIFO # 1
+            fifo,                   // The FIFO number that call this function (0 or 1)
             true,                   // Release      
             &cmsg.msgid,            // CAN ID uint32_t
             &xmsgidf,               // true if msgid is extended
@@ -353,14 +354,15 @@ can_rx_isr(uint8_t fifo,uint8_t msgcount) {
         cmsg.xmsgidf = xmsgidf;
         cmsg.rtrf = rtrf;
         cmsg.fifo = fifo;
-        
-        // If the queue is full, the message is lost
+
+        // Adding to this queue unblocks the NoCAN frame
+        // builder function. If the queue is full, the message is lost
         xQueueSendToBackFromISR(canrxq,&cmsg,NULL);
     }
 }
 
 /*********************************************************************
- * CAN FIFO 0 ISR - Declared in libopenCM3
+   CAN FIFO 0 ISR - Declared in libopenCM3
  *********************************************************************/
 void
 usb_lp_can_rx0_isr(void) {                      // libopenCM3
@@ -368,7 +370,7 @@ usb_lp_can_rx0_isr(void) {                      // libopenCM3
 }
 
 /*********************************************************************
- * CAN FIFO 1 ISR - Declared in libopenCM3
+   CAN FIFO 1 ISR - Declared in libopenCM3
  *********************************************************************/
 void
 can_rx1_isr(void) {                             // libopenCM3
@@ -426,15 +428,17 @@ nocan_get_channel_id(TaskHandle_t calling_task, uint8_t name_size, uint8_t *name
     }
 }
 
-
+// TODO - refactor so this function just recieved the data it needs, not the raw CAN message
 /*********************************************************************
     Process a NoCAN system type message
 
     This function is called / sits in the task_process_can_rx task,
     so the xTaskNotify can call back to the blocked functions
     that sit in other running tasks
+
+    Handles the core NoCAN system messages such as node address register,
+    channel register, etc. i.e. NOT Kroby functionality
  *********************************************************************/
-// TODO - refactor so this function just recieved the data it needs, not the raw CAN message
 static void
 nocan_process_system_msg(uint8_t rx_node_id, uint8_t sys_command,
                          uint8_t sys_parameter, uint8_t data_length, uint8_t *data) {
@@ -455,21 +459,26 @@ nocan_process_system_msg(uint8_t rx_node_id, uint8_t sys_command,
 
         switch (sys_command) {
             // NoCAN System Functions
-            case SYS_ADDRESS_CONFIGURE:                     // (2) response to our SYS_CHANNEL_REGISTER request
-                // response to request, parameter has new nodeID, data should match our uID
-                id_match = true;
+            case SYS_ADDRESS_CONFIGURE:                     
+                // A response to our SYS_ADDRESS_REGISTER request
+                // the message 'data' should match our uID
+                // then the 'parameter' is our newly assigned nodeID
+
                 core_get_hashed_uid((uint16_t *)hashed_id);
-                
+
+                id_match = true;
                 for (uint8_t x = 0; x < 8; x++) {
-                    if (hashed_id[x] != data[x]) {       // check if received nodeID matches ours
+                    if (hashed_id[x] != data[x]) {       // check if received nodeID matches our hashed ID
                         id_match = false;
                     }
                 }
 
+                // todo - NoCAN master can reply with parameter of 255 on failure
                 if (id_match) {
                     INFO_P(std_printf("SYS_ADDRESS_CONFIGURE - match\n");)
-                    // todo - NoCAN master can reply with parameter of 255 on failure
-                    xTaskNotify(g_calling_task, sys_parameter, eSetValueWithOverwrite); // unblock waiting handler task
+
+                    // unblock the task which sent SYS_ADDRESS_REGISTER request passing it the new nodeID (sys_parameter)
+                    xTaskNotify(g_calling_task, sys_parameter, eSetValueWithOverwrite);
                 } else {
                     // don't return anything to the calling nocan_get_node_id() as we often get
                     // messages that aren't for use during the boot of lots of nodes prior to the
@@ -479,14 +488,13 @@ nocan_process_system_msg(uint8_t rx_node_id, uint8_t sys_command,
                     INFO(std_printf("SYS_ADDRESS_CONFIGURE - not for us\n");)
                 }
                 break;
-            case SYS_NODE_BOOT_REQUEST:                 // (6)
+            case SYS_NODE_BOOT_REQUEST:
                 INFO(std_printf("NoCAN SYS reboot requested");)
                 vTaskDelay(500);
-                scb_reset_system();                     // openCM3 reset command
+                scb_reset_system();                                 // openCM3 reset command
                 break;
-            case SYS_CHANNEL_REGISTER_ACK:                          // (11) respons to our SYS_CHANNEL_REGISTER request
+            case SYS_CHANNEL_REGISTER_ACK:                          // Received response to our SYS_CHANNEL_REGISTER request
                 if (sys_parameter == 0) {                           // parameter set to 0 if request was successful
-                    
                     nocan_ch_id = data[0] << 8;
                     nocan_ch_id |= (data[1] & 0xFF);
 
@@ -494,6 +502,7 @@ nocan_process_system_msg(uint8_t rx_node_id, uint8_t sys_command,
                     // UGLY!! - 0 is a valid NoCAN channel, 0 is also the ulTaskNotifyTake time out value !!
                     // so we add 1 to the received nocan_ch_id and 'return' it, then just subtract the 1 off
                     // when assigning it to the channel...
+                    // unblock the task which sent SYS_CHANNEL_REGISTER request passing it the new channel ID
                     xTaskNotify(g_calling_task, (nocan_ch_id + 1), eSetValueWithOverwrite); // unblock waiting handler task
                 } else {
                     INFO(std_printf("NoCAN master could not assign chID\n");)
@@ -511,11 +520,10 @@ nocan_process_system_msg(uint8_t rx_node_id, uint8_t sys_command,
 }
 
 
-
-
 /*********************************************************************
  * CAN Receive Callback - called from task_process_can_rx()
  * builds nocan frames before forwarding on for pocessing
+ * by various differen NoCAN message handlers
  *********************************************************************/
 static void
 nocan_frame_builder(s_canmsg *msg) {
@@ -541,7 +549,7 @@ nocan_frame_builder(s_canmsg *msg) {
     INFO_PP(std_printf("CAN filter: %u\n", msg->fmi);)
 
     if(eID.sys_flag) {
-        // never receive system messages longer than 1 NoCAN frame so just process
+        // never receive NoCAN system messages longer than 1 NoCAN frame so just process
         frame_cnt = 0;
         nocan_process_system_msg(eID.node_id, eID.function, eID.parameter, msg->length, msg->data);
     } else {
@@ -595,14 +603,14 @@ nocan_frame_builder(s_canmsg *msg) {
             INFO_P(std_printf("command: 0x%04X, length: %u\n", command, data_length);)
 
             if (command < LC_TEST_OUTPUTS) {
-                // this is a CORE Kroby NoCAN command
-                core_process_nocan_msg(command, data_length, nocan_data);
+                // this is a CORE Kroby NoCAN command i.e. 
+                core_process_kroby_msg(command, data_length, nocan_data);
             } else {
                 // this is a CORE Kroby NoCAN command
                 if (core_node_type_is() == LOAD_DC_4CH || core_node_type_is() == LOAD_AC_4CH) {
-                    //lc_process_nocan_msg(command, msg->length, nocan_data);
+                    lc_process_kroby_msg(command, data_length, nocan_data);
                 } else {
-                    //sp_process_nocan_msg(command, msg->length, nocan_data);
+                    //sp_process_kroby_msg(command, msg->length, nocan_data);
                 }
             }
 

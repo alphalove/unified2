@@ -95,7 +95,7 @@
 #define configMINIMAL_STACK_SIZE	( ( unsigned short ) 128 )
 // I changed this way back when from 17 to 14, but not sure why!
 // ok - ld compile error - node.elf section '.bss' will not fit in region 'ram'
-#define configTOTAL_HEAP_SIZE		( ( size_t ) ( 17 * 1024 ) )
+#define configTOTAL_HEAP_SIZE		( ( size_t ) ( 16 * 1024 ) )
 #define configMAX_TASK_NAME_LEN		( 16 )
 #define configUSE_TRACE_FACILITY	0
 #define configUSE_16_BIT_TICKS		0
